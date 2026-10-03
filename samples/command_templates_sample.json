@@ -1,0 +1,59 @@
+{
+  "name": "EC2 構築確認（読み取り専用）サンプル",
+  "templates": [
+    {
+      "title": "インスタンス基本情報",
+      "kind": "aws",
+      "checks": "instance_type,private_ip,ami_id,subnet_id",
+      "template": "aws ec2 describe-instances --region {{region}} --instance-ids {{instance_id}} --query 'Reservations[].Instances[].[InstanceId,InstanceType,State.Name,PrivateIpAddress,ImageId,SubnetId]' --output text --no-cli-pager"
+    },
+    {
+      "title": "セキュリティグループ",
+      "kind": "aws",
+      "checks": "security_group_id",
+      "template": "aws ec2 describe-instances --region {{region}} --instance-ids {{instance_id}} --query 'Reservations[].Instances[].SecurityGroups[].GroupId' --output text --no-cli-pager"
+    },
+    {
+      "title": "EBS ボリューム",
+      "kind": "aws",
+      "checks": "ebs_size_gib",
+      "template": "aws ec2 describe-volumes --region {{region}} --filters Name=attachment.instance-id,Values={{instance_id}} --query 'Volumes[].[VolumeId,Size,VolumeType,State]' --output text --no-cli-pager"
+    },
+    {
+      "title": "AMI 名",
+      "kind": "aws",
+      "checks": "os",
+      "template": "aws ec2 describe-images --region {{region}} --image-ids {{ami_id}} --query 'Images[].[ImageId,Name]' --output text --no-cli-pager"
+    },
+    {
+      "title": "ホスト名",
+      "kind": "linux",
+      "checks": "hostname",
+      "template": "ssh -n -o BatchMode=yes -o ConnectTimeout=10 {{ssh_user}}@{{private_ip}} 'hostname -f'"
+    },
+    {
+      "title": "メモリ (GiB)",
+      "kind": "linux",
+      "checks": "memory_gib",
+      "template": "ssh -n -o BatchMode=yes -o ConnectTimeout=10 {{ssh_user}}@{{private_ip}} 'free -g'"
+    },
+    {
+      "title": "vCPU 数",
+      "kind": "linux",
+      "checks": "vcpu",
+      "template": "ssh -n -o BatchMode=yes -o ConnectTimeout=10 {{ssh_user}}@{{private_ip}} 'nproc'"
+    },
+    {
+      "title": "ディスク使用量",
+      "kind": "linux",
+      "checks": "ebs_size_gib",
+      "template": "ssh -n -o BatchMode=yes -o ConnectTimeout=10 {{ssh_user}}@{{private_ip}} 'df -h /'"
+    },
+    {
+      "title": "OS バージョン",
+      "kind": "linux",
+      "checks": "os",
+      "template": "ssh -n -o BatchMode=yes -o ConnectTimeout=10 {{ssh_user}}@{{private_ip}} 'grep PRETTY_NAME /etc/os-release'"
+    }
+  ]
+}

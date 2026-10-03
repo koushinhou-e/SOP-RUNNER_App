@@ -1,0 +1,1 @@
+{ "name": "build-assistant-e2e", "private": true, "description": "dev-only: headless browser tests (not needed to run the app)", "devDependencies": { "playwright": "1.63.0" } }

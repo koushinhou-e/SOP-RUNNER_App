@@ -1,0 +1,17 @@
+# ---- 用户数据（模板、作业、进度、导出文件）——绝不提交 ----
+data/
+exports/
+*.local.xlsx
+*.local.docx
+
+# ---- 测试与开发产物 ----
+tests/_out/
+tests/e2e/node_modules/
+tests/e2e/package-lock.json
+__pycache__/
+*.pyc
+.venv/
+venv/
+.DS_Store
+Thumbs.db
+~$*
