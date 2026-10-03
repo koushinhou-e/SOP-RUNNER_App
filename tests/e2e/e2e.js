@@ -29,7 +29,7 @@ function startServer() {
   console.log('server:', url, 'python:', PY, '(-I -S, vendored deps only)');
   const origin = url.replace(/\/$/, '');
   const browser = await chromium.launch();
-  const ctx = await browser.newContext({ acceptDownloads: true, viewport: { width: 1400, height: 950 }, locale: 'ja-JP', timezoneId: 'Asia/Tokyo' });
+  const ctx = await browser.newContext({ acceptDownloads: true, viewport: { width: 1280, height: 900 }, locale: 'ja-JP', timezoneId: 'Asia/Tokyo' });
   const external = [], errors = [];
   await ctx.route('**/*', r => { const u = r.request().url(); if (u.startsWith(origin + '/') || /^(blob|data):/.test(u)) return r.continue(); external.push(u); return r.abort(); });
   const page = await ctx.newPage();
@@ -158,7 +158,7 @@ function startServer() {
     console.log('6) 参数比对');
     await page.click('[data-jt=compare]');
     await page.waitForSelector('#cmpTable tr[data-key]');
-    const exp = await page.$$eval('#cmpTable tr[data-key]', trs => trs.map(t => [t.getAttribute('data-key'), t.children[3].textContent]));
+    const exp = await page.$$eval('#cmpTable tr[data-key]', trs => trs.map(t => [t.getAttribute('data-key'), t.querySelector('td.exp').textContent]));
     ok(exp.length === 13, '比对项 13');
     for (const [k, e] of exp) {
       const v = k === 'instance_type' ? 't3.medium' : k === 'memory_gib' ? '8 GiB' : k === 'private_ip' ? '１９２.０.２.１１' : e;
@@ -205,7 +205,41 @@ function startServer() {
     await page.click('#sop-app button[data-act=resume]');
     ok(await page.evaluate(() => SopApp.state().view) === 2, '继续执行：定位到第 3 步');
 
-    console.log('9) 网络与错误');
+    console.log('9) 响应式布局：1024 / 1280 宽度下各视图无横向溢出、按钮完整可见');
+    const views = [
+      ['模板库', async () => { await page.click('#nav [data-tab=library]'); await page.waitForSelector('.lib-excel_template tr[data-id]'); }],
+      ['模板编辑', async () => { await page.click('.lib-excel_template button[data-act=openItem]'); await page.waitForSelector('#itemTable'); }],
+      ['参数表', async () => { await page.click('[data-act=backLib]'); await page.click('.lib-param_sheet button[data-act=openItem]'); await page.waitForSelector('#paramTable'); }],
+      ['命令集编辑', async () => { await page.click('[data-act=backLib]'); await page.click('.lib-command_set button[data-act=openItem]'); await page.waitForSelector('#cePreview .cmdcard'); }],
+      ['①输入', async () => { await page.click('[data-act=backLib]'); await page.click('#nav [data-tab=jobs]'); await page.click('[data-job]'); await page.click('[data-jt=inputs]'); await page.waitForSelector('#inTable'); }],
+      ['②命令', async () => { await page.click('[data-jt=commands]'); await page.waitForSelector('#cmdList .cmdcard'); }],
+      ['③比对', async () => { await page.click('[data-jt=compare]'); await page.waitForSelector('#cmpTable tr[data-key]'); }],
+      ['④交付物', async () => { await page.click('[data-jt=deliver]'); await page.waitForSelector('#dvTable'); }],
+      ['手顺执行', async () => { await page.click('#nav [data-tab=sop]'); await page.waitForSelector('#sop-app'); }],
+    ];
+    const layoutIssues = () => page.evaluate(() => {
+      const W = document.documentElement.clientWidth, bad = [];
+      if (document.documentElement.scrollWidth > W + 1) bad.push('page scrollWidth ' + document.documentElement.scrollWidth + ' > ' + W);
+      document.querySelectorAll('.tab.on button, .tab:not(.hidden) button, header button').forEach(b => {
+        const r = b.getBoundingClientRect(); if (!r.width || b.closest('.tscroll,.grid-prev,.hidden')) return;
+        if (r.right > W + 1 || r.left < -1) bad.push('button "' + b.textContent.trim().slice(0, 20) + '" right=' + Math.round(r.right));
+      });
+      document.querySelectorAll('.tscroll').forEach(t => { const r = t.getBoundingClientRect(); if (r.width && r.right > W + 1) bad.push('tscroll overflow ' + Math.round(r.right)); });
+      return bad;
+    });
+    for (const w of [1024, 1280]) {
+      await page.setViewportSize({ width: w, height: 900 });
+      const issues = [];
+      for (const [name, go] of views) {
+        await go(); await page.waitForTimeout(150);
+        (await layoutIssues()).forEach(x => issues.push(name + ': ' + x));
+        if (w === 1024 && name === '③比对') { await shot(); await page.screenshot({ path: path.join(SHOT, '05-compare-1024.png') }); }
+      }
+      ok(issues.length === 0, `宽度 ${w}px：${views.length} 个视图无横向溢出 ` + (issues.length ? JSON.stringify(issues) : ''));
+    }
+    await page.setViewportSize({ width: 1280, height: 900 });
+
+    console.log('10) 网络与错误');
     ok(external.length === 0, '浏览器外部请求 = 0 ' + (external.length ? JSON.stringify(external) : ''));
     ok(errors.length === 0, '无 JS 错误 ' + (errors.length ? JSON.stringify(errors) : ''));
   } catch (e) {

@@ -44,7 +44,7 @@
     ED = null; CE = null;
     if (G.libView) return renderLibItem(el);
     loadLib().then(function () {
-      var h = '<div class="card"><div class="row" style="justify-content:space-between"><h3>模板库</h3><div class="row"><button id="btnSamples">加载示例数据（虚构）</button></div></div>' +
+      var h = '<div class="card"><div class="row spread"><h3>模板库</h3><div class="row"><button id="btnSamples">加载示例数据（虚构）</button></div></div>' +
         '<div class="uploads">' + upCard('excel_template', '交付物模板', '.xlsx', '客户的输出模板，自动检测要填写的单元格') + upCard('param_sheet', '参数表', '.xlsx', '键/期待值（可多台服务器列）') +
         upCard('procedure', '手顺书', '.docx', '在「手顺执行」中逐步执行') +
         '<div class="up" id="upCmd"><h4>命令模板集</h4><p class="muted">{{param}} 占位符的只读确认命令</p><button data-act="newCmdSet">新建（含示例命令）</button> <button data-act="pickCmdJson">导入 JSON</button><input type="file" accept=".json,application/json" class="hidden" id="cmdJson"></div></div></div>';
@@ -52,11 +52,11 @@
         var list = G.lib[t] || [];
         h += '<div class="card"><h3>' + TYPE_NAMES[t] + ' <span class="muted">(' + list.length + ')</span></h3>';
         if (!list.length) h += '<p class="muted">暂无</p>';
-        else h += '<table class="t lib-' + t + '"><tr><th>名称</th><th>文件</th><th>概要</th><th>更新</th><th></th></tr>' + list.map(function (m) {
+        else h += '<div class="tscroll"><table class="t lib-' + t + '"><tr><th>名称</th><th>文件</th><th>概要</th><th>更新</th><th></th></tr>' + list.map(function (m) {
           return '<tr data-id="' + m.id + '"><td lang="ja"><b>' + esc(m.name) + '</b></td><td class="muted" lang="ja">' + esc(m.original_name || '') + '</td><td>' + esc(summary(m)) + '</td><td class="nowrap muted">' + esc((m.updated || '').replace('T', ' ')) + '</td><td class="nowrap right">' +
             (t === 'procedure' ? '<button class="small primary" data-act="openSop" data-id="' + m.id + '">在手顺执行中打开</button> ' : '<button class="small primary" data-act="openItem" data-id="' + m.id + '">' + (t === 'param_sheet' ? '查看' : '编辑') + '</button> ') +
             '<button class="small" data-act="rename" data-id="' + m.id + '">重命名</button> <button class="small danger" data-act="delItem" data-id="' + m.id + '">删除</button></td></tr>';
-        }).join('') + '</table>';
+        }).join('') + '</table></div>';
         h += '</div>';
       });
       el.innerHTML = h;
@@ -149,10 +149,10 @@
 
   function renderParamSheet(el, m) {
     var p = m.parsed;
-    el.innerHTML = '<div class="card"><div class="row" style="justify-content:space-between"><h3 lang="ja">参数表：' + esc(m.name) + '</h3><button data-act="backLib">← 返回模板库</button></div>' +
+    el.innerHTML = '<div class="card"><div class="row spread"><h3 lang="ja">参数表：' + esc(m.name) + '</h3><button data-act="backLib">← 返回模板库</button></div>' +
       '<p class="muted">工作表「' + esc(p.sheet) + '」，表头第 ' + p.header_row + ' 行；服务器列：' + esc(p.servers.join(', ')) + '</p>' +
-      '<table class="t" id="paramTable" lang="ja"><tr><th>区分</th><th>项目</th><th>键</th>' + p.servers.map(function (s) { return '<th>' + esc(s) + '</th>'; }).join('') + '</tr>' +
-      p.params.map(function (x) { return '<tr><td>' + esc(x.category) + '</td><td>' + esc(x.label) + '</td><td class="mono">' + esc(x.key) + '</td>' + p.servers.map(function (s) { return '<td>' + esc(x.values[s]) + '</td>'; }).join('') + '</tr>'; }).join('') + '</table></div>';
+      '<div class="tscroll"><table class="t" id="paramTable" lang="ja"><tr><th>区分</th><th>项目</th><th>键</th>' + p.servers.map(function (s) { return '<th>' + esc(s) + '</th>'; }).join('') + '</tr>' +
+      p.params.map(function (x) { return '<tr><td>' + esc(x.category) + '</td><td>' + esc(x.label) + '</td><td class="mono">' + esc(x.key) + '</td>' + p.servers.map(function (s) { return '<td>' + esc(x.values[s]) + '</td>'; }).join('') + '</tr>'; }).join('') + '</table></div></div>';
   }
 
   /* ---------- 交付物模板编辑器（检测项 + 规则 + 映射） ---------- */
@@ -166,7 +166,7 @@
   function drawEditor(el) {
     var m = ED.m, presets = Rules.presets();
     var psOpts = '<option value="">（不参照）</option>' + (G.lib.param_sheet || []).map(function (p) { return '<option value="' + p.id + '"' + (p.id === ED.paramRef ? ' selected' : '') + '>' + esc(p.name) + '</option>'; }).join('');
-    var h = '<div class="card"><div class="row" style="justify-content:space-between"><h3 lang="ja">交付物模板：' + esc(m.name) + ' <span class="muted">' + esc(m.original_name || '') + '</span></h3>' +
+    var h = '<div class="card"><div class="row spread"><h3 lang="ja">交付物模板：' + esc(m.name) + ' <span class="muted">' + esc(m.original_name || '') + '</span></h3>' +
       '<div class="row"><button data-act="backLib">← 返回</button><button class="primary" id="edSave">保存</button></div></div>' +
       '<div class="row"><label>参照参数表 <select id="edParam">' + psOpts + '</select></label><button id="edAuto">按标签自动映射</button><button id="edRedetect">重新检测</button>' +
       '<span class="muted" id="edStat"></span></div>' +
@@ -175,8 +175,8 @@
       h += '<div class="row" style="margin:6px 0">' + ED.sheets.map(function (s, i) { return '<button class="small' + (i === ED.sheet ? ' primary' : '') + '" data-sheet="' + i + '">' + esc(s.name) + '</button>'; }).join('') + '</div>';
       h += '<div class="grid-prev" id="gridPrev">' + gridHtml(ED.sheets[ED.sheet]) + '</div>';
     }
-    h += '</div><div class="card"><div class="row" style="justify-content:space-between"><h3>检测项 / 映射 <span class="muted" id="edCount"></span></h3><button id="edAdd">＋ 添加项</button></div>' +
-      '<div style="overflow:auto"><table class="t" id="itemTable"><tr><th>单元格</th><th style="min-width:180px">标签</th><th>来源(检测)</th><th>类型</th><th style="min-width:110px">选项(逗号)</th><th>必填</th><th>格式</th><th>正则</th><th>最小</th><th>最大</th><th style="min-width:170px">填充来源（映射）</th><th>固定值</th><th></th></tr>' +
+    h += '</div><div class="card"><div class="row spread"><h3>检测项 / 映射 <span class="muted" id="edCount"></span></h3><button id="edAdd">＋ 添加项</button></div>' +
+      '<div class="tscroll"><table class="t" id="itemTable"><tr><th>单元格</th><th style="min-width:180px">标签</th><th>来源(检测)</th><th>类型</th><th style="min-width:110px">选项(逗号)</th><th>必填</th><th>格式</th><th>正则</th><th>最小</th><th>最大</th><th style="min-width:170px">填充来源（映射）</th><th>固定值</th><th></th></tr>' +
       ED.items.map(function (it, i) {
         var r = it.rules || {}, sv = srcValue(it);
         var srcOpts = '<option value="input"' + (sv === 'input' ? ' selected' : '') + '>作业输入</option><option value="none"' + (sv === 'none' ? ' selected' : '') + '>不填（手动）</option><option value="fixed"' + (sv === 'fixed' ? ' selected' : '') + '>固定值</option>';
@@ -298,13 +298,13 @@
   function drawCmdEditor(el) {
     var ps = (G.lib.param_sheet || []).filter(function (p) { return p.id === CE.ps; })[0], servers = ps ? ps.parsed.servers : [];
     if (servers.indexOf(CE.server) < 0) CE.server = servers[0] || '';
-    var h = '<div class="card"><div class="row" style="justify-content:space-between"><h3 lang="ja">命令模板集：' + esc(CE.m.name) + '</h3><div class="row"><button data-act="backLib">← 返回</button><button id="ceExport">导出 JSON</button><button class="primary" id="ceSave">保存</button></div></div>' +
+    var h = '<div class="card"><div class="row spread"><h3 lang="ja">命令模板集：' + esc(CE.m.name) + '</h3><div class="row"><button data-act="backLib">← 返回</button><button id="ceExport">导出 JSON</button><button class="primary" id="ceSave">保存</button></div></div>' +
       '<p class="muted">用 <code>{{键}}</code> 引用参数表的键（如 <code>{{instance_id}}</code>）。只放<b>只读</b>确认命令：aws 需 <code>--output</code> 与 <code>--no-cli-pager</code>，ssh 需 <code>-o BatchMode=yes</code>。本工具只生成文本，<b>不会执行任何命令</b>。</p>' +
-      '<table class="t" id="ceTable"><tr><th style="width:160px">标题</th><th style="width:80px">类型</th><th style="width:140px">比对参数键(逗号)</th><th>命令模板</th><th></th></tr>' +
+      '<div class="tscroll"><table class="t" id="ceTable"><tr><th style="width:160px">标题</th><th style="width:80px">类型</th><th style="width:140px">比对参数键(逗号)</th><th>命令模板</th><th></th></tr>' +
       CE.t.map(function (t, i) {
         return '<tr data-i="' + i + '"><td><input type="text" data-f="title" value="' + esc(t.title) + '" lang="ja"></td><td><select data-f="kind">' + ['aws', 'linux', 'windows', 'other'].map(function (k) { return '<option' + (t.kind === k ? ' selected' : '') + '>' + k + '</option>'; }).join('') + '</select></td>' +
           '<td><input type="text" data-f="checks" value="' + esc(t.checks || '') + '" class="mono"></td><td><textarea class="mono tpl" data-f="template">' + esc(t.template) + '</textarea></td><td><button class="small danger" data-f="del">✕</button></td></tr>';
-      }).join('') + '</table><button id="ceAdd" style="margin-top:8px">＋ 添加命令</button></div>' +
+      }).join('') + '</table></div><button id="ceAdd" style="margin-top:8px">＋ 添加命令</button></div>' +
       '<div class="card"><div class="row"><b>预览</b><label>参数表 <select id="cePs">' + (G.lib.param_sheet || []).map(function (p) { return '<option value="' + p.id + '"' + (p.id === CE.ps ? ' selected' : '') + '>' + esc(p.name) + '</option>'; }).join('') + '</select></label>' +
       '<label>服务器 <select id="ceSrv">' + servers.map(function (s) { return '<option' + (s === CE.server ? ' selected' : '') + '>' + esc(s) + '</option>'; }).join('') + '</select></label></div><div id="cePreview" style="margin-top:8px"></div></div>';
     el.innerHTML = h;
@@ -317,7 +317,7 @@
   function cmdList(cmds) {
     if (!cmds.length) return '<p class="muted">没有命令。</p>';
     return cmds.map(function (c, i) {
-      return '<div class="cmdcard" data-cmd="' + i + '"><div class="row" style="justify-content:space-between"><b lang="ja">[' + (i + 1) + '] ' + esc(c.title) + '</b><span class="muted">' + esc(c.kind) + (c.checks ? ' · 比对: ' + esc(c.checks) : '') + '</span></div>' +
+      return '<div class="cmdcard" data-cmd="' + i + '"><div class="row spread"><b lang="ja">[' + (i + 1) + '] ' + esc(c.title) + '</b><span class="muted">' + esc(c.kind) + (c.checks ? ' · 比对: ' + esc(c.checks) : '') + '</span></div>' +
         c.warnings.map(function (w) { return '<div class="warn">⚠ ' + esc(w) + '</div>'; }).join('') +
         (c.missing.length ? '<div class="miss">未解析的占位符：' + esc(c.missing.join(', ')) + '</div>' : '') +
         '<div class="cmd"><code>' + esc(c.sh) + '</code><button data-copy="' + esc(c.sh) + '">复制</button></div></div>';
@@ -396,7 +396,7 @@
   }
   function drawJob() {
     var j = J.job;
-    var h = '<div class="card"><div class="row" style="justify-content:space-between"><div><h3 lang="ja" style="margin:0">' + esc(j.name) + '</h3><div class="muted" lang="ja">服务器 <b>' + esc(j.server || '—') + '</b> · 模板 ' + esc(libName(j.template_id)) + ' · 参数表 ' + esc(libName(j.param_sheet_id)) + ' · 命令 ' + esc(libName(j.command_set_id)) + '</div></div>' +
+    var h = '<div class="card"><div class="row spread"><div><h3 lang="ja" style="margin:0">' + esc(j.name) + '</h3><div class="muted" lang="ja">服务器 <b>' + esc(j.server || '—') + '</b> · 模板 ' + esc(libName(j.template_id)) + ' · 参数表 ' + esc(libName(j.param_sheet_id)) + ' · 命令 ' + esc(libName(j.command_set_id)) + '</div></div>' +
       '<div class="row">' + (j.procedure_id ? '<button id="jbProc">打开手顺书</button>' : '') + '<button id="jbEdit">设置</button><button class="danger" id="jbDel">删除</button></div></div>' +
       '<div class="subtabs" id="jobTabs">' + [['inputs', '① 输入检查'], ['commands', '② 命令生成'], ['compare', '③ 参数比对'], ['deliver', '④ 交付物输出']].map(function (t) { return '<button data-jt="' + t[0] + '"' + (G.jobTab === t[0] ? ' class="on"' : '') + '>' + t[1] + '</button>'; }).join('') + '</div></div><div id="jobBody"></div>';
     $('#jobMain').innerHTML = h;
@@ -412,6 +412,8 @@
     if (t.id === 'jbDel') { if (confirm('删除作业「' + J.job.name + '」？')) Api.del('/api/jobs/' + J.job.id).then(function () { G.jobId = null; renderJobs(); }).catch(fail); }
   });
 
+  // 异步返回时若用户已切换到别的作业/子标签，则丢弃这次渲染（避免竞态）
+  function stale(body, tab) { return !body.isConnected || G.jobTab !== tab; }
   /* ---------- ① 输入检查 ---------- */
   function itemsById() { var m = {}; ((J.template || {}).items || []).forEach(function (it) { m[it.id] = it; }); return m; }
   function drawInputs() {
@@ -424,11 +426,11 @@
       if (r.kind !== 'input') ctl = '<input type="text" value="' + esc(v) + '" disabled lang="ja" data-ro="' + esc(r.id) + '">';
       else if (it.type === 'dropdown') ctl = '<select data-in="' + esc(r.id) + '"><option value="">（未选择）</option>' + (it.options || []).map(function (o) { return '<option' + (o === v ? ' selected' : '') + '>' + esc(o) + '</option>'; }).join('') + '</select>';
       else ctl = '<input type="text" data-in="' + esc(r.id) + '" value="' + esc(v) + '" lang="ja"' + (it.type === 'number' ? ' inputmode="decimal"' : '') + ' placeholder="' + esc(placeholderFor(it)) + '">';
-      return '<tr data-row="' + esc(r.id) + '"><td class="mono nowrap muted">' + esc(r.cell) + '</td><td lang="ja">' + esc(r.label) + ((it.rules || {}).required ? ' <span class="req" style="color:#dc2626">*</span>' : '') + '</td><td><span class="pill ' + r.kind + '">' + ({ param: '参数 ' + (r.key || ''), fixed: '固定值', input: '输入' })[r.kind] + '</span></td><td style="min-width:260px">' + ctl + '</td><td class="msg" style="min-width:160px"></td></tr>';
+      return '<tr data-row="' + esc(r.id) + '"><td class="mono nowrap muted">' + esc(r.cell) + '</td><td lang="ja">' + esc(r.label) + ((it.rules || {}).required ? ' <span class="req" style="color:#dc2626">*</span>' : '') + '</td><td><span class="pill ' + r.kind + '">' + ({ param: '参数 ' + (r.key || ''), fixed: '固定值', input: '输入' })[r.kind] + '</span></td><td class="w-val">' + ctl + '</td><td class="msg w-msg"></td></tr>';
     }
-    body.innerHTML = '<div class="card"><div class="row" style="justify-content:space-between"><h3>作业输入 <span class="muted">(' + inputs.length + ')</span></h3><span id="inStat"></span></div>' +
-      '<table class="t" id="inTable"><tr><th>单元格</th><th>项目</th><th>来源</th><th>值</th><th>检查</th></tr>' + inputs.map(row).join('') + '</table></div>' +
-      '<div class="card"><h3>来自参数表 / 固定值 <span class="muted">(' + others.length + ')（同样按规则检查，发现参数表本身的错误）</span></h3><table class="t" id="roTable"><tr><th>单元格</th><th>项目</th><th>来源</th><th>值</th><th>检查</th></tr>' + others.map(row).join('') + '</table></div>';
+    body.innerHTML = '<div class="card"><div class="row spread"><h3>作业输入 <span class="muted">(' + inputs.length + ')</span></h3><span id="inStat"></span></div>' +
+      '<div class="tscroll"><table class="t" id="inTable"><tr><th>单元格</th><th>项目</th><th>来源</th><th>值</th><th>检查</th></tr>' + inputs.map(row).join('') + '</table></div></div>' +
+      '<div class="card"><h3>来自参数表 / 固定值 <span class="muted">(' + others.length + ')（同样按规则检查，发现参数表本身的错误）</span></h3><div class="tscroll"><table class="t" id="roTable"><tr><th>单元格</th><th>项目</th><th>来源</th><th>值</th><th>检查</th></tr>' + others.map(row).join('') + '</table></div></div>';
     validateAll();
   }
   function placeholderFor(it) { var p = (it.rules || {}).preset, ps = Rules.presets(); return p && ps[p] ? '例: ' + ps[p].example : (it.type === 'number' ? '数字' : ''); }
@@ -461,15 +463,16 @@
     var body = $('#jobBody');
     if (!J.job.command_set_id) { body.innerHTML = '<div class="card muted">此作业没有选择命令模板集。</div>'; return; }
     Api.get('/api/jobs/' + J.job.id + '/commands').then(function (r) {
+      if (stale(body, 'commands')) return;
       var needed = {}; r.commands.forEach(function (c) { (c.sh.match(/\{\{\s*[\w.-]+\s*\}\}/g) || []).forEach(function (x) { needed[x.replace(/[{}\s]/g, '')] = 1; }); });
       var gl = J.job.globals || {};
       var used = {}; ((G.lib.command_set || []).filter(function (c) { return c.id === J.job.command_set_id; })[0] || { templates: [] }).templates.forEach(function (t) { (t.template.match(/\{\{\s*([\w.-]+)\s*\}\}/g) || []).forEach(function (x) { used[x.replace(/[{}\s]/g, '')] = 1; }); });
       var keys = Object.keys(used).sort();
-      body.innerHTML = '<div class="card"><div class="row" style="justify-content:space-between"><h3>确认命令 <span class="muted">(' + r.commands.length + ')</span></h3><div class="row">' +
+      body.innerHTML = '<div class="card"><div class="row spread"><h3>确认命令 <span class="muted">(' + r.commands.length + ')</span></h3><div class="row">' +
         '<button id="dlSh">下载 .sh</button><button id="dlPs1">下载 .ps1</button></div></div>' +
         '<p class="muted">⚠ 只生成文本，<b>不会自动执行</b>。请审阅后在你的终端里手动运行。所有 aws 命令带 <code>--no-cli-pager</code> / <code>--output</code>，ssh 带 <code>-o BatchMode=yes</code>（lint 会提示缺失）。</p>' +
-        '<details open><summary>占位符变量（参数表值，可在此覆盖）</summary><table class="t" id="glTable" style="margin-top:6px"><tr><th>变量</th><th>当前值</th><th>覆盖值（仅此作业）</th></tr>' +
-        keys.map(function (k) { return '<tr><td class="mono">{{' + esc(k) + '}}</td><td class="mono' + (needed[k] ? ' err' : '') + '">' + esc(r.context[k] == null || r.context[k] === '' ? '（未定义）' : r.context[k]) + '</td><td><input type="text" class="mono" data-gl="' + esc(k) + '" value="' + esc(gl[k] || '') + '"></td></tr>'; }).join('') + '</table></details>' +
+        '<details open><summary>占位符变量（参数表值，可在此覆盖）</summary><div class="tscroll"><table class="t" id="glTable" style="margin-top:6px"><tr><th>变量</th><th>当前值</th><th>覆盖值（仅此作业）</th></tr>' +
+        keys.map(function (k) { return '<tr><td class="mono">{{' + esc(k) + '}}</td><td class="mono' + (needed[k] ? ' err' : '') + '">' + esc(r.context[k] == null || r.context[k] === '' ? '（未定义）' : r.context[k]) + '</td><td><input type="text" class="mono" data-gl="' + esc(k) + '" value="' + esc(gl[k] || '') + '"></td></tr>'; }).join('') + '</table></div></details>' +
         '<div style="margin-top:10px" id="cmdList">' + cmdList(r.commands) + '</div></div>';
       $('#dlSh').addEventListener('click', function () { download('/api/jobs/' + J.job.id + '/commands.sh'); });
       $('#dlPs1').addEventListener('click', function () { download('/api/jobs/' + J.job.id + '/commands.ps1'); });
@@ -484,15 +487,16 @@
     var body = $('#jobBody');
     if (!J.job.param_sheet_id) { body.innerHTML = '<div class="card muted">此作业没有参数表。</div>'; return; }
     Api.get('/api/jobs/' + J.job.id + '/compare').then(function (r) {
+      if (stale(body, 'compare')) return;
       J.compareRows = r.rows;
-      body.innerHTML = '<div class="card"><div class="row" style="justify-content:space-between"><h3>参数比对 <span class="muted">服务器 ' + esc(J.job.server) + '</span></h3><div class="row"><span id="cmpStat"></span><button class="primary" id="cmpExport">导出比对结果 .xlsx</button></div></div>' +
+      body.innerHTML = '<div class="card"><div class="row spread"><h3>参数比对 <span class="muted">服务器 ' + esc(J.job.server) + '</span></h3><div class="row"><span id="cmpStat"></span><button class="primary" id="cmpExport">导出比对结果 .xlsx</button></div></div>' +
         '<p class="muted">把确认命令的输出结果填入「实测值」，自动判定与期待值是否一致（忽略全角/半角、大小写、空格，8 / 8 GiB / 8GB 视为相同）。最后逐项点击 OK / NG。</p>' +
-        '<div style="overflow:auto"><table class="t" id="cmpTable"><tr><th class="nowrap">区分</th><th style="min-width:120px">项目</th><th>键</th><th>期待值</th><th style="min-width:200px">实测值</th><th>自动判定</th><th>判定</th><th style="min-width:140px">备注</th><th>确认命令</th></tr>' +
+        '<div class="tscroll"><table class="t" id="cmpTable"><tr><th class="nowrap">区分</th><th class="w-item">项目 / 键</th><th class="w-exp">期待值</th><th class="w-actual">实测值</th><th>自动判定</th><th>判定</th><th class="w-note">备注</th><th>确认命令</th></tr>' +
         r.rows.map(function (x) {
-          return '<tr data-key="' + esc(x.key) + '" class="' + (x.auto === 'mismatch' ? 'mismatch' : '') + '"><td lang="ja" class="nowrap">' + esc(x.category) + '</td><td lang="ja">' + esc(x.label) + '</td><td class="mono">' + esc(x.key) + '</td><td class="mono" lang="ja">' + esc(x.expected) + '</td>' +
+          return '<tr data-key="' + esc(x.key) + '" class="' + (x.auto === 'mismatch' ? 'mismatch' : '') + '"><td lang="ja" class="nowrap">' + esc(x.category) + '</td><td lang="ja">' + esc(x.label) + '<div class="mono muted keyline">' + esc(x.key) + '</div></td><td class="mono brk exp" lang="ja">' + esc(x.expected) + '</td>' +
             '<td><input type="text" data-cmp="actual" value="' + esc(x.actual) + '" lang="ja"></td><td class="nowrap"><span class="pill ' + x.auto + '" data-auto>' + esc(x.auto_label) + '</span></td>' +
             '<td class="jg nowrap"><button class="small ok' + (x.judgement === 'OK' ? ' on' : '') + '" data-j="OK">OK</button> <button class="small ng' + (x.judgement === 'NG' ? ' on' : '') + '" data-j="NG">NG</button></td>' +
-            '<td><input type="text" data-cmp="note" value="' + esc(x.note) + '" lang="ja"></td><td>' + x.commands.map(function (c) { return '<button class="small" data-copy="' + esc(c.sh) + '" title="' + esc(c.sh) + '" lang="ja">复制: ' + esc(c.title) + '</button>'; }).join(' ') + '</td></tr>';
+            '<td><input type="text" data-cmp="note" value="' + esc(x.note) + '" lang="ja"></td><td><div class="copylist">' + x.commands.map(function (c) { return '<button class="small" data-copy="' + esc(c.sh) + '" title="' + esc(c.sh) + '" lang="ja">复制: ' + esc(c.title) + '</button>'; }).join('') + '</div></td></tr>';
         }).join('') + '</table></div></div>';
       cmpStat();
       $('#cmpExport').addEventListener('click', function () { flushCompare().then(function () { download('/api/jobs/' + J.job.id + '/compare.xlsx'); }); });
@@ -530,14 +534,15 @@
     var body = $('#jobBody');
     if (!J.template) { body.innerHTML = '<div class="card muted">此作业没有交付物模板。</div>'; return; }
     Api.get('/api/jobs/' + J.job.id).then(function (v) {
+      if (stale(body, 'deliver')) return;
       J.job = v.job; J.resolved = v.resolved;
       var filled = v.resolved.filter(function (r) { return r.kind !== 'none' && String(r.value || '').trim(); }).length;
-      body.innerHTML = '<div class="card"><div class="row" style="justify-content:space-between"><h3>交付物输出</h3><div class="row"><button id="dvMap">编辑映射</button><button class="primary" id="dvExport">导出交付物 .xlsx</button></div></div>' +
+      body.innerHTML = '<div class="card"><div class="row spread"><h3>交付物输出</h3><div class="row"><button id="dvMap">编辑映射</button><button class="primary" id="dvExport">导出交付物 .xlsx</button></div></div>' +
         '<p class="muted">把参数表的值和作业输入写入客户模板的对应单元格，模板原有格式（字体、底色、边框、合并单元格、列宽、数据验证）保持不变。「不填」的单元格保持原样，导出后请在 Excel 中手动编辑个性化部分。</p>' +
         '<p>将写入 <b>' + filled + '</b> 个单元格' + (v.errors ? '，<span class="err" style="font-size:14px">其中 ' + v.errors + ' 项未通过检查（仍可导出）</span>' : '') + '。</p>' +
-        '<table class="t" id="dvTable"><tr><th>单元格</th><th>项目</th><th>来源</th><th>写入值</th><th>检查</th></tr>' + v.resolved.map(function (r) {
+        '<div class="tscroll"><table class="t" id="dvTable"><tr><th>单元格</th><th>项目</th><th>来源</th><th>写入值</th><th>检查</th></tr>' + v.resolved.map(function (r) {
           return '<tr><td class="mono nowrap">' + esc(r.sheet + '!' + r.cell) + '</td><td lang="ja">' + esc(r.label) + '</td><td><span class="pill ' + r.kind + '">' + ({ param: '参数 ' + (r.key || ''), fixed: '固定值', input: '输入', none: '不填' })[r.kind] + '</span></td><td lang="ja">' + esc(r.value) + '</td><td>' + (r.errors.length ? '<span class="err">' + esc(r.errors.map(function (x) { return x.message; }).join('；')) + '</span>' : (r.kind !== 'none' && String(r.value || '').trim() ? '<span class="okc">✓</span>' : '')) + '</td></tr>';
-        }).join('') + '</table></div>';
+        }).join('') + '</table></div></div>';
       $('#dvExport').addEventListener('click', function () { download('/api/jobs/' + J.job.id + '/deliverable.xlsx'); toast('正在生成交付物…'); });
       $('#dvMap').addEventListener('click', function () { G.libView = { id: J.job.template_id }; setTab('library'); });
     }).catch(fail);
@@ -546,6 +551,6 @@
   /* ================= 启动 ================= */
   window.addEventListener('dragover', function (e) { e.preventDefault(); });
   window.addEventListener('drop', function (e) { e.preventDefault(); });
-  Api.get('/api/presets').then(function (r) { Rules.setPresets(r.presets, r.messages); }).catch(fail).then(function () { setTab('library'); });
+  Api.get('/api/presets').then(function (r) { Rules.setPresets(r.presets, r.messages); }).catch(fail).then(function () { setTab(G.tab); });   // 保留加载期间用户已切换的标签（避免竞态覆盖）
   window.BA = { G: G, setTab: setTab, openJob: openJob, flush: function () { return flushCompare(); } };
 })();
