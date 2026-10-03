@@ -109,10 +109,11 @@ var ExportTemplates = {
           cell([P(run(r.anomaly ? L.yes : L.none, { size: S, bold: r.anomaly, color: r.anomaly ? 'C00000' : null }), { align: 'center' })], W[6], { fill: fill })
         ].join(''));
       });
+      if (typeof ExportHooks !== 'undefined' && ExportHooks && ExportHooks.stepRows) rows = rows.slice(0, 1).concat([].concat.apply([], R.rows.map(function (r, k) { return [rows[k + 1]].concat(ExportHooks.stepRows(r, W, L)); })));
       body.push(Ox.table(W, rows, { header: true }));
       body.push(P(run(L.footer, { size: 16, color: '888888' }), { before: 120 }));
       var sect = '<w:sectPr><w:pgSz w:w="16838" w:h="11906" w:orient="landscape"/><w:pgMar w:top="850" w:right="850" w:bottom="850" w:left="850" w:header="500" w:footer="500" w:gutter="0"/></w:sectPr>';
-      var xml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><w:body>' + body.join('') + sect + '</w:body></w:document>';
+      var xml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"><w:body>' + body.join('') + sect + '</w:body></w:document>';
       return { 'word/document.xml': xml };
     }
   }
@@ -131,6 +132,7 @@ var DocxWriter = {
       'word/styles.xml': '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:docDefaults><w:rPrDefault><w:rPr><w:rFonts w:ascii="Yu Gothic" w:eastAsia="Yu Gothic" w:hAnsi="Yu Gothic" w:cs="Yu Gothic"/><w:sz w:val="20"/><w:szCs w:val="20"/><w:lang w:val="en-US" w:eastAsia="ja-JP"/></w:rPr></w:rPrDefault><w:pPrDefault><w:pPr><w:spacing w:after="40" w:line="260" w:lineRule="auto"/></w:pPr></w:pPrDefault></w:docDefaults><w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/></w:style></w:styles>',
       'docProps/core.xml': '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<cp:coreProperties xmlns:cp="' + NS_PKG + 'metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"><dc:title>' + Ox.esc(meta.title || '') + '</dc:title><dc:creator>' + Ox.esc(meta.creator || '') + '</dc:creator><dcterms:created xsi:type="dcterms:W3CDTF">' + new Date().toISOString().replace(/\.\d+Z$/, 'Z') + '</dcterms:created></cp:coreProperties>'
     };
+    if (meta.extend) meta.extend(defaults);
     Object.keys(defaults).forEach(function (k) { if (!parts[k]) zip.file(k, defaults[k]); });
     Object.keys(parts).forEach(function (k) { zip.file(k, parts[k]); });
     return zip.generateAsync({ type: 'blob', mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', compression: 'DEFLATE' });

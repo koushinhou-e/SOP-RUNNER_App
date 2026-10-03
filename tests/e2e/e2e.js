@@ -180,23 +180,99 @@ function startServer() {
     const dv = await dl('#dvExport', 'deliverable.xlsx');
     ok(/web01_\d{8}-\d{6}\.xlsx$/.test(dv.name), '交付物导出：' + dv.name);
 
-    console.log('8) 手顺执行（v1 模块，进度存服务器）');
+    console.log('8) 手顺执行（v1 模块，进度存服务器）＋ 自定义证迹图片');
     await page.click('#jbProc');
     await page.waitForSelector('#sop-app #stepCount');
     ok(await page.textContent('#sop-app #stepCount') === '18', '从模板库打开手顺书：18 步（v1 解析器）');
+    // 编辑模式：给第 3 步加 2 个证迹图片要求
+    await page.waitForSelector('#sop-app #evLibNote');
+    ok((await page.textContent('#evLibNote')).includes('テンプレートライブラリの手順書'), '证迹设置：识别为模板库中的手顺书（设置将保存到模板库）');
+    const sid3 = await page.evaluate(() => SopApp.state().steps[2].id);
+    await page.click(`#sop-app button[data-ev=addReq][data-sid="${sid3}"]`);
+    await page.fill(`#sop-app input.ev-desc[data-sid="${sid3}"]`, 'EC2 詳細画面のスクリーンショット');
+    await page.fill(`#sop-app input.ev-key[data-sid="${sid3}"]`, 'img_ec2');
+    await page.click(`#sop-app button[data-ev=addReq][data-sid="${sid3}"]`);
+    await page.locator(`#sop-app input.ev-desc[data-sid="${sid3}"]`).nth(1).fill('セキュリティグループ設定');
+    ok(await page.locator(`#sop-app .ev-req input.ev-desc[data-sid="${sid3}"]`).count() === 2, '编辑模式：第 3 步添加了 2 个证迹图片要求');
+    await page.waitForTimeout(900);   // 设置去抖保存到模板库
+    await page.locator(`#sop-app input.ev-desc[data-sid="${sid3}"]`).first().scrollIntoViewIfNeeded();
+    await shot(); await page.locator(`#sop-app input.ev-desc[data-sid="${sid3}"]`).first().scrollIntoViewIfNeeded();
+    await page.screenshot({ path: path.join(SHOT, '08-evidence-edit.png') });
+    const procMeta = (await api('/api/library?type=procedure')).items[0];
+    const evs = procMeta.evidence && procMeta.evidence.steps;
+    ok(evs && evs.length === 1 && evs[0].index === 2 && evs[0].items.length === 2 && evs[0].items[0].desc === 'EC2 詳細画面のスクリーンショット' && evs[0].items[0].key === 'img_ec2', '证迹要求已保存到模板库的手顺书设置（meta.evidence）');
     await page.fill('#sop-app input[data-bind=executor]', '山田 太郎');
     await page.click('#sop-app #btnStart');
     await page.waitForSelector('#sop-app #btnConfirm');
     ok(await page.isDisabled('#sop-app #btnConfirm'), '确认按钮在输入未填时禁用');
-    const st0 = await page.evaluate(() => SopApp.state().steps[0]);
-    for (const inp of st0.inputs) await page.fill('#in_' + inp.id, inp.type === 'time' ? '2026-10-03 09:00' : 'テスト');
-    await page.click('#sop-app #btnConfirm');
-    await page.click('#sop-app #btnConfirm');   // step 2 has no inputs
-    await shot(); await page.screenshot({ path: path.join(SHOT, '07-sop-runner.png') });
+    const fillStep = async () => {
+      const st = await page.evaluate(() => SopApp.state().steps[SopApp.state().view]);
+      for (const inp of st.inputs) {
+        const sel = '#in_' + inp.id, tag = await page.$eval(sel, e => e.tagName + ':' + (e.type || ''));
+        if (tag.startsWith('SELECT')) await page.selectOption(sel, { index: 1 });
+        else if (tag.endsWith('checkbox')) await page.check(sel);
+        else await page.fill(sel, inp.type === 'time' ? '2026-10-03 09:00' : inp.type === 'number' ? '1' : 'テスト');
+      }
+    };
+    await fillStep(); await page.click('#sop-app #btnConfirm');
+    await fillStep(); await page.click('#sop-app #btnConfirm');
+    await page.waitForSelector('#sop-app #evRun');
+    await fillStep();
+    ok(await page.isDisabled('#sop-app #btnConfirm') && (await page.textContent('#missHint')).includes('証跡画像「EC2 詳細画面のスクリーンショット」'), '第 3 步：输入已填但证迹图片未附 → 确认仍禁用，并提示缺少的图片');
+    // 合成剪贴板粘贴（canvas 生成的 PNG）
+    const mkImg = (type, label, w, h, bg) => page.evaluate(async ([type, label, w, h, bg]) => {
+      const c = document.createElement('canvas'); c.width = w; c.height = h; const g = c.getContext('2d');
+      g.fillStyle = bg; g.fillRect(0, 0, w, h); g.fillStyle = '#ff9900'; g.fillRect(0, 0, w, 56);
+      g.fillStyle = '#ffffff'; g.font = 'bold 30px sans-serif'; g.fillText(label, 24, 40);
+      g.fillStyle = '#e2e8f0'; for (let i = 0; i < 6; i++) g.fillRect(24, 90 + i * 50, w - 48 - i * 60, 26);
+      const b = await new Promise(r => c.toBlob(r, type, 0.9));
+      return Array.from(new Uint8Array(await b.arrayBuffer()));
+    }, [type, label, w, h, bg]);
+    const png1 = await mkImg('image/png', 'EC2 Instance summary  i-0123456789abcdef0', 1280, 720, '#232f3e');
+    await page.evaluate(async (bytes) => {
+      const dt = new DataTransfer(); dt.items.add(new File([new Uint8Array(bytes)], 'image.png', { type: 'image/png' }));
+      document.body.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }));
+    }, png1);
+    const [req1, req2] = await page.evaluate(() => SopApp.state().steps[2].evidence.map(e => e.id));
+    await page.waitForSelector(`#evRun .ev-box[data-rid="${req1}"] .ev-th img`);
+    ok(await page.evaluate(r => SopApp.state().results[SopApp.state().steps[2].id].images[r].length, req1) === 1, '合成 Ctrl+V 粘贴（ClipboardEvent + PNG）→ 图片附到第 1 个要求');
+    ok(await page.isDisabled('#sop-app #btnConfirm'), '仍有 1 个要求未附图 → 确认禁用');
+    // 拖放（DragEvent + DataTransfer）
+    const png2 = await mkImg('image/png', 'Security Group  sg-0abc  inbound 443', 900, 600, '#1e3a5f');
+    await page.evaluate(async ([bytes, rid]) => {
+      const dt = new DataTransfer(); dt.items.add(new File([new Uint8Array(bytes)], 'sg-rules.png', { type: 'image/png' }));
+      document.querySelector(`.ev-drop[data-rid="${rid}"]`).dispatchEvent(new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true }));
+    }, [png2, req2]);
+    await page.waitForSelector(`#evRun .ev-box[data-rid="${req2}"] .ev-th img`);
+    ok(!(await page.isDisabled('#sop-app #btnConfirm')), '拖放附图后所有要求满足 → 确认按钮可用');
+    // 文件选择（JPEG），然后删除
+    const jpg = await mkImg('image/jpeg', 'extra JPEG', 640, 480, '#334155');
+    await page.setInputFiles(`#evRun input[data-evfile="${req2}"]`, { name: 'extra.jpg', mimeType: 'image/jpeg', buffer: Buffer.from(jpg) });
+    await page.waitForFunction(r => document.querySelectorAll(`#evRun .ev-box[data-rid="${r}"] .ev-th`).length === 2, req2);
+    const jpgMeta = await page.evaluate(r => SopApp.state().results[SopApp.state().steps[2].id].images[r][1], req2);
+    ok(jpgMeta.ext === 'jpg' && jpgMeta.w === 640 && jpgMeta.h === 480 && fs.existsSync(path.join(DATA, 'sop_images', jpgMeta.id + '.jpg')), '文件选择 JPEG：640×480，保存到 data/sop_images/');
+    await page.click(`#evRun .ev-th button[data-img="${jpgMeta.id}"]`);
+    await page.waitForFunction(r => document.querySelectorAll(`#evRun .ev-box[data-rid="${r}"] .ev-th`).length === 1, req2);
+    await page.waitForTimeout(300);
+    ok(!fs.existsSync(path.join(DATA, 'sop_images', jpgMeta.id + '.jpg')), '删除缩略图：服务器上的图片文件也被删除');
+    // 点击放大
+    await page.click(`#evRun .ev-box[data-rid="${req1}"] .ev-th img`);
+    await page.waitForSelector('#evZoom img');
+    ok(await page.$eval('#evZoom img', i => i.complete && i.naturalWidth === 1280), '点击缩略图放大显示（原尺寸 1280px）');
+    await shot(); await page.screenshot({ path: path.join(SHOT, '10-evidence-zoom.png') });
+    await page.keyboard.press('Escape');
+    ok(!(await page.$('#evZoom')), 'Esc 关闭放大');
+    await page.locator('#evRun').scrollIntoViewIfNeeded();
+    await page.evaluate(() => document.querySelector('#toast').classList.remove('show')); await page.waitForTimeout(300);
+    await page.screenshot({ path: path.join(SHOT, '09-evidence-run.png') });
     await page.evaluate(() => SopStore.flush());
     const files = fs.readdirSync(path.join(DATA, 'sop_sessions'));
     const saved = JSON.parse(fs.readFileSync(path.join(DATA, 'sop_sessions', files[0]), 'utf8'));
+    const savedImgs = saved.results[sid3].images;
     ok(files.length === 1 && Object.values(saved.results).filter(r => r.confirmedAt).length === 2, '进度已写入 data/sop_sessions/*.json（2 步已确认）');
+    ok(savedImgs[req1].length === 1 && savedImgs[req2].length === 1 && !JSON.stringify(saved).includes('base64') && fs.statSync(path.join(DATA, 'sop_sessions', files[0])).size < 30000, '会话 JSON 只存图片元数据（无 base64）');
+    const lsSize = await page.evaluate(() => Object.keys(localStorage).reduce((a, k) => a + localStorage.getItem(k).length, 0));
+    ok(lsSize < 30000, 'localStorage 中无大体积图片数据（' + lsSize + ' 字符）');
     await page.evaluate(() => localStorage.clear());
     await page.reload();
     await page.click('#nav [data-tab=sop]');
@@ -204,6 +280,51 @@ function startServer() {
     ok((await page.textContent('#sop-app #sessions')).includes('2 / 18'), '清空 localStorage 并刷新后，从服务器恢复会话列表（2 / 18）');
     await page.click('#sop-app button[data-act=resume]');
     ok(await page.evaluate(() => SopApp.state().view) === 2, '继续执行：定位到第 3 步');
+    await page.waitForSelector('#evRun .ev-th img');
+    await page.waitForFunction(() => [...document.querySelectorAll('#evRun .ev-th img')].every(i => i.complete && i.naturalWidth > 0));
+    ok(await page.locator('#evRun .ev-th img').count() === 2 && !(await page.isDisabled('#sop-app #btnConfirm')), '刷新后恢复：2 张证迹图片仍在、确认按钮可用');
+    // 完成全部步骤 → 导出 Word 实施记录
+    while (await page.$('#sop-app #btnConfirm')) {
+      await fillStep();
+      if (await page.isDisabled('#sop-app #btnConfirm')) break;
+      await page.click('#sop-app #btnConfirm');
+    }
+    await page.waitForSelector('#btnExportDocx');
+    const docx = await dl('#btnExportDocx', 'record.docx');
+    ok(/_実施記録_\d{8}-\d{4}\.docx$/.test(docx.name), 'Word 实施记录导出：' + docx.name);
+    const zipInfo = await page.evaluate(async (b64) => {
+      const z = await JSZip.loadAsync(b64, { base64: true }), names = Object.keys(z.files);
+      return { names, rels: await z.file('word/_rels/document.xml.rels').async('string'), ct: await z.file('[Content_Types].xml').async('string'), doc: await z.file('word/document.xml').async('string') };
+    }, fs.readFileSync(docx.p).toString('base64'));
+    const media = zipInfo.names.filter(n => n.startsWith('word/media/') && !n.endsWith('/'));
+    ok(media.length === 2 && (zipInfo.doc.match(/<w:drawing>/g) || []).length === 2 && media.every(m => zipInfo.rels.includes('Target="' + m.slice(5) + '"')) && zipInfo.ct.includes('Extension="png"'), 'docx：2 张图片（word/media + 关系 + 内容类型 + drawing）');
+    ok(zipInfo.doc.includes('証跡 3-1：EC2 詳細画面のスクリーンショット'), 'docx：图片说明（证迹 3-1：…）');
+
+    console.log('8b) 交付物插入证迹图片（纯 Python，无 Pillow）');
+    const tplId = (await api('/api/library?type=excel_template')).items[0].id;
+    const tpl = await api('/api/library/' + tplId);
+    // E9 已在步骤 2 中删除 → 重新添加为“证迹图片”映射（键 img_ec2）
+    tpl.items.push(Object.assign({}, tpl.items[0], { id: '構築結果!E9', sheet: '構築結果', cell: 'E9', label: 'EC2 画面（証跡）', rules: {}, options: [], source: { kind: 'evidence', key: 'img_ec2' } }));
+    await api('/api/library/' + tplId, { method: 'PUT', body: JSON.stringify({ items: tpl.items }) });
+    await page.click('#nav [data-tab=jobs]'); await page.click('[data-job]'); await page.click('[data-jt=deliver]');
+    await page.waitForSelector('#dvTable');
+    await page.waitForFunction(() => !document.querySelector('#dvEvOn').disabled);
+    ok((await page.textContent('#dvTable')).includes('証跡画像 img_ec2') && (await page.textContent('#dvEvSrc')).includes('画像 2 枚'), '交付物：映射显示“証跡画像 img_ec2”，可选择含 2 张图片的执行记录');
+    await page.check('#dvEvOn');
+    await page.waitForTimeout(2500); await shot();
+    await page.screenshot({ path: path.join(SHOT, '11-deliverable-evidence.png') });
+    const dve = await dl('#dvExport', 'deliverable_evidence.xlsx');
+    ok(/web01_\d{8}-\d{6}\.xlsx$/.test(dve.name), '含证迹图片的交付物导出：' + dve.name);
+
+    console.log('8c) 再次从模板库打开同一手顺书 → 证迹要求自动重新应用');
+    await page.click('#nav [data-tab=sop]'); await page.click('#sop-hdr button[data-act=home]');
+    await page.waitForSelector('#sop-app #sessions');
+    await page.click('#sop-app button[data-act=delSession]');
+    await page.waitForFunction(() => !document.querySelector('#sop-app button[data-act=delSession]'));
+    await page.click('#sop-lib button[data-open-proc]');
+    await page.waitForSelector('#sop-app .ev-req');
+    const re = await page.evaluate(() => SopApp.state().steps[2].evidence);
+    ok(re.length === 2 && re[0].desc === 'EC2 詳細画面のスクリーンショット' && re[0].key === 'img_ec2' && re[1].desc === 'セキュリティグループ設定', '新会话自动应用模板库中保存的证迹要求（第 3 步 2 项）');
 
     console.log('9) 响应式布局：1024 / 1280 宽度下各视图无横向溢出、按钮完整可见');
     const views = [
@@ -215,7 +336,22 @@ function startServer() {
       ['②命令', async () => { await page.click('[data-jt=commands]'); await page.waitForSelector('#cmdList .cmdcard'); }],
       ['③比对', async () => { await page.click('[data-jt=compare]'); await page.waitForSelector('#cmpTable tr[data-key]'); }],
       ['④交付物', async () => { await page.click('[data-jt=deliver]'); await page.waitForSelector('#dvTable'); }],
-      ['手顺执行', async () => { await page.click('#nav [data-tab=sop]'); await page.waitForSelector('#sop-app'); }],
+      ['手顺执行(编辑+证迹)', async () => {
+        await page.click('#nav [data-tab=sop]'); await page.waitForSelector('#sop-app');
+        if (await page.evaluate(() => SopApp.state() && SopApp.state().phase !== 'edit')) {   // 第 2 轮：删除会话后从模板库重新打开（证迹要求再次自动应用）
+          await page.click('#sop-hdr button[data-act=home]'); await page.click('#sop-app button[data-act=delSession]');
+          await page.click('#sop-lib button[data-open-proc]');
+        }
+        await page.waitForSelector('#sop-app .ev-req');
+      }],
+      ['手顺执行(执行+证迹)', async () => {
+        await page.fill('#sop-app input[data-bind=executor]', '山田 太郎'); await page.click('#sop-app #btnStart'); await page.waitForSelector('#sop-app #btnConfirm');
+        await fillStep(); await page.click('#sop-app #btnConfirm'); await fillStep(); await page.click('#sop-app #btnConfirm');
+        await page.waitForSelector('#evRun .ev-drop');
+        const b = await mkImg('image/png', 'layout check', 800, 450, '#475569');
+        await page.evaluate(async (bytes) => { const dt = new DataTransfer(); dt.items.add(new File([new Uint8Array(bytes)], 'image.png', { type: 'image/png' })); document.body.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true })); }, b);
+        await page.waitForSelector('#evRun .ev-th img');
+      }],
     ];
     const layoutIssues = () => page.evaluate(() => {
       const W = document.documentElement.clientWidth, bad = [];
@@ -224,6 +360,7 @@ function startServer() {
         const r = b.getBoundingClientRect(); if (!r.width || b.closest('.tscroll,.grid-prev,.hidden')) return;
         if (r.right > W + 1 || r.left < -1) bad.push('button "' + b.textContent.trim().slice(0, 20) + '" right=' + Math.round(r.right));
       });
+      document.querySelectorAll('.ev-box,.ev-drop,.ev-req,.ev-xlsx,#evLibNote').forEach(t => { const r = t.getBoundingClientRect(); if (r.width && (r.right > W + 1 || r.left < -1)) bad.push('evidence overflow ' + t.className + ' ' + Math.round(r.right)); });
       document.querySelectorAll('.tscroll').forEach(t => { const r = t.getBoundingClientRect(); if (r.width && r.right > W + 1) bad.push('tscroll overflow ' + Math.round(r.right)); });
       return bad;
     });
@@ -234,6 +371,7 @@ function startServer() {
         await go(); await page.waitForTimeout(150);
         (await layoutIssues()).forEach(x => issues.push(name + ': ' + x));
         if (w === 1024 && name === '③比对') { await shot(); await page.screenshot({ path: path.join(SHOT, '05-compare-1024.png') }); }
+        if (w === 1024 && name === '手顺执行(执行+证迹)') { await page.evaluate(() => document.querySelector('#toast').classList.remove('show')); await page.locator('#evRun').scrollIntoViewIfNeeded(); await page.waitForTimeout(300); await page.screenshot({ path: path.join(SHOT, '09-evidence-run-1024.png') }); }
       }
       ok(issues.length === 0, `宽度 ${w}px：${views.length} 个视图无横向溢出 ` + (issues.length ? JSON.stringify(issues) : ''));
     }

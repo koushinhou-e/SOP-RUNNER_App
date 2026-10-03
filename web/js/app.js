@@ -120,6 +120,7 @@
     Api.get('/api/library/' + id).then(function (m) {
       return Api.blob('/api/library/' + id + '/file').then(function (b) {
         setTab('sop');
+        if (window.SopEvidence) SopEvidence.openFromLibrary(id);
         SopApp.importFile(new File([b], m.original_name || (m.name + '.docx'), { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' }));
       });
     }).catch(fail);
@@ -179,7 +180,7 @@
       '<div class="tscroll"><table class="t" id="itemTable"><tr><th>セル</th><th style="min-width:180px">ラベル</th><th>検出理由</th><th>型</th><th style="min-width:110px">選択肢(カンマ区切り)</th><th>必須</th><th>書式</th><th>正規表現</th><th>最小</th><th>最大</th><th style="min-width:170px">値の取得元（マッピング）</th><th>固定値</th><th></th></tr>' +
       ED.items.map(function (it, i) {
         var r = it.rules || {}, sv = srcValue(it);
-        var srcOpts = '<option value="input"' + (sv === 'input' ? ' selected' : '') + '>作業入力</option><option value="none"' + (sv === 'none' ? ' selected' : '') + '>記入しない（手動）</option><option value="fixed"' + (sv === 'fixed' ? ' selected' : '') + '>固定値</option>';
+        var srcOpts = '<option value="input"' + (sv === 'input' ? ' selected' : '') + '>作業入力</option><option value="none"' + (sv === 'none' ? ' selected' : '') + '>記入しない（手動）</option><option value="fixed"' + (sv === 'fixed' ? ' selected' : '') + '>固定値</option><option value="evidence"' + (sv === 'evidence' ? ' selected' : '') + '>証跡画像（キー指定）</option>';
         var keys = ED.params.map(function (p) { return p.key; });
         if (sv.indexOf('param:') === 0 && keys.indexOf(sv.slice(6)) < 0) srcOpts += '<option value="' + esc(sv) + '" selected>パラメータ: ' + esc(sv.slice(6)) + '</option>';
         srcOpts += ED.params.map(function (p) { return '<option value="param:' + esc(p.key) + '"' + (sv === 'param:' + p.key ? ' selected' : '') + '>パラメータ: ' + esc(p.label) + ' (' + esc(p.key) + ')</option>'; }).join('');
@@ -191,7 +192,7 @@
           '<td><select data-f="preset"><option value="">—</option>' + Object.keys(presets).map(function (k) { return '<option value="' + k + '"' + (r.preset === k ? ' selected' : '') + '>' + esc(presets[k].label) + '</option>'; }).join('') + '</select></td>' +
           '<td><input type="text" data-f="pattern" value="' + esc(r.pattern || '') + '" class="mono" style="width:90px"></td>' +
           '<td><input type="text" data-f="min" value="' + esc(r.min == null ? '' : r.min) + '" style="width:50px"></td><td><input type="text" data-f="max" value="' + esc(r.max == null ? '' : r.max) + '" style="width:50px"></td>' +
-          '<td><select data-f="source">' + srcOpts + '</select></td><td><input type="text" data-f="fixed" value="' + esc((it.source || {}).value || '') + '" ' + (sv === 'fixed' ? '' : 'disabled') + ' style="width:90px"></td>' +
+          '<td><select data-f="source">' + srcOpts + '</select></td><td><input type="text" data-f="fixed" value="' + esc(sv === 'evidence' ? (it.source.key || '') : ((it.source || {}).value || '')) + '" ' + (sv === 'fixed' || sv === 'evidence' ? '' : 'disabled') + ' placeholder="' + (sv === 'evidence' ? '証跡キー' : '') + '" style="width:90px"></td>' +
           '<td><button class="small danger" data-f="del">✕</button></td></tr>';
       }).join('') + '</table></div></div>';
     el.innerHTML = h;
@@ -234,7 +235,7 @@
     else if (f === 'options') it.options = t.value.split(/[,，]/).map(function (s) { return s.trim(); }).filter(Boolean);
     else if (f === 'pattern') it.rules.pattern = t.value;
     else if (f === 'min' || f === 'max') it.rules[f] = t.value === '' ? null : (isNaN(+t.value) ? t.value : +t.value);
-    else if (f === 'fixed') it.source = { kind: 'fixed', value: t.value };
+    else if (f === 'fixed') it.source = (it.source || {}).kind === 'evidence' ? { kind: 'evidence', key: t.value.trim() } : { kind: 'fixed', value: t.value };
     edDirty();
   });
   $('#library').addEventListener('change', function (e) {
@@ -252,7 +253,7 @@
     else if (f === 'source') {
       it._manual = true;
       it.source = t.value.indexOf('param:') === 0 ? { kind: 'param', key: t.value.slice(6) } : (t.value === 'fixed' ? { kind: 'fixed', value: '' } : { kind: t.value });
-      var fx = $('input[data-f=fixed]', tr); fx.disabled = t.value !== 'fixed';
+      var fx = $('input[data-f=fixed]', tr); fx.disabled = t.value !== 'fixed' && t.value !== 'evidence'; fx.placeholder = t.value === 'evidence' ? '証跡キー' : ''; if (t.value === 'evidence') it.source = { kind: 'evidence', key: fx.value.trim() };
       var g = $('#gridPrev'); if (g) g.innerHTML = gridHtml(ED.sheets[ED.sheet]);
     }
     edDirty();
@@ -419,7 +420,7 @@
   function drawInputs() {
     var body = $('#jobBody');
     if (!J.template) { body.innerHTML = '<div class="card muted">この作業には成果物テンプレートが設定されていません。</div>'; return; }
-    var byId = itemsById(), res = J.resolved.filter(function (r) { return r.kind !== 'none'; });
+    var byId = itemsById(), res = J.resolved.filter(function (r) { return r.kind !== 'none' && r.kind !== 'evidence'; });
     var inputs = res.filter(function (r) { return r.kind === 'input'; }), others = res.filter(function (r) { return r.kind !== 'input'; });
     function row(r) {
       var it = byId[r.id] || {}, v = r.value == null ? '' : r.value, ctl;
@@ -536,14 +537,26 @@
     Api.get('/api/jobs/' + J.job.id).then(function (v) {
       if (stale(body, 'deliver')) return;
       J.job = v.job; J.resolved = v.resolved;
-      var filled = v.resolved.filter(function (r) { return r.kind !== 'none' && String(r.value || '').trim(); }).length;
+      var filled = v.resolved.filter(function (r) { return r.kind !== 'none' && r.kind !== 'evidence' && String(r.value || '').trim(); }).length, evCells = v.resolved.filter(function (r) { return r.kind === 'evidence'; });
       body.innerHTML = '<div class="card"><div class="row spread"><h3>成果物出力</h3><div class="row"><button id="dvMap">マッピング編集</button><button class="primary" id="dvExport">成果物を出力 .xlsx</button></div></div>' +
         '<p class="muted">パラメータシートの値と作業入力をお客様テンプレートの該当セルに書き込みます。テンプレートの書式（フォント・塗りつぶし・罫線・セル結合・列幅・入力規則）はそのまま保持されます。「記入しない」セルは変更しません。出力後、個別の記述は Excel で手作業で編集してください。</p>' +
         '<p><b>' + filled + '</b> セルに書き込みます' + (v.errors ? '。<span class="err" style="font-size:14px">うち ' + v.errors + ' 項目がチェック NG です（出力は可能）</span>' : '') + '。</p>' +
+        '<div class="ev-xlsx" id="dvEv"><label class="nowrap"><input type="checkbox" id="dvEvOn" disabled> 証跡画像を挿入する</label> <select id="dvEvSrc" disabled><option value="">（読み込み中…）</option></select>' +
+        '<div class="muted">手順実行の記録から画像を取り出し、末尾に「証跡」シートを追加して手順ごとに貼り付けます。マッピングで取得元を「証跡画像（キー指定）」にしたセル' + (evCells.length ? '（' + evCells.length + ' 個）' : '') + 'には、そのキーの最初の画像を配置します。</div></div>' +
         '<div class="tscroll"><table class="t" id="dvTable"><tr><th>セル</th><th>項目</th><th>取得元</th><th>書き込む値</th><th>チェック</th></tr>' + v.resolved.map(function (r) {
-          return '<tr><td class="mono nowrap">' + esc(r.sheet + '!' + r.cell) + '</td><td lang="ja">' + esc(r.label) + '</td><td><span class="pill ' + r.kind + '">' + ({ param: 'パラメータ ' + (r.key || ''), fixed: '固定値', input: '入力', none: '記入しない' })[r.kind] + '</span></td><td lang="ja">' + esc(r.value) + '</td><td>' + (r.errors.length ? '<span class="err">' + esc(r.errors.map(function (x) { return x.message; }).join('；')) + '</span>' : (r.kind !== 'none' && String(r.value || '').trim() ? '<span class="okc">✓</span>' : '')) + '</td></tr>';
+          return '<tr><td class="mono nowrap">' + esc(r.sheet + '!' + r.cell) + '</td><td lang="ja">' + esc(r.label) + '</td><td><span class="pill ' + r.kind + '">' + ({ param: 'パラメータ ' + (r.key || ''), fixed: '固定値', input: '入力', none: '記入しない', evidence: '証跡画像 ' + (r.key || '') })[r.kind] + '</span></td><td lang="ja">' + esc(r.value) + '</td><td>' + (r.errors.length ? '<span class="err">' + esc(r.errors.map(function (x) { return x.message; }).join('；')) + '</span>' : (r.kind !== 'none' && r.kind !== 'evidence' && String(r.value || '').trim() ? '<span class="okc">✓</span>' : '')) + '</td></tr>';
         }).join('') + '</table></div></div>';
-      $('#dvExport').addEventListener('click', function () { download('/api/jobs/' + J.job.id + '/deliverable.xlsx'); toast('成果物を生成しています…'); });
+      Api.get('/api/sop/sessions').then(function (r) {
+        if (stale(body, 'deliver') || !$('#dvEvSrc')) return;
+        var proc = (G.lib && G.lib.procedure || []).filter(function (m) { return m.id === J.job.procedure_id; })[0];
+        var items = r.items.map(function (s) { var n = 0; Object.keys(s.results || {}).forEach(function (k) { var im = s.results[k].images || {}; Object.keys(im).forEach(function (q) { n += (im[q] || []).length; }); }); return { s: s, n: n }; }).filter(function (x) { return x.n > 0; });
+        items.sort(function (a, b) { var pa = proc && a.s.docName === proc.original_name ? 1 : 0, pb = proc && b.s.docName === proc.original_name ? 1 : 0; return pb - pa || String(b.s.updatedAt || '').localeCompare(String(a.s.updatedAt || '')); });
+        var sel = $('#dvEvSrc'), on = $('#dvEvOn');
+        sel.innerHTML = items.length ? items.map(function (x) { return '<option value="' + esc(x.s.key) + '">' + esc(x.s.docTitle || x.s.docName) + '（画像 ' + x.n + ' 枚・' + esc(x.s.updatedAt ? new Date(x.s.updatedAt).toLocaleString('sv-SE').slice(0, 16) : '') + '）</option>'; }).join('') : '<option value="">証跡画像のある手順実行の記録がありません</option>';
+        on.disabled = !items.length; sel.disabled = !items.length || !on.checked;
+        on.addEventListener('change', function () { sel.disabled = !on.checked; });
+      }).catch(fail);
+      $('#dvExport').addEventListener('click', function () { var on = $('#dvEvOn'), src = $('#dvEvSrc') && $('#dvEvSrc').value; download('/api/jobs/' + J.job.id + '/deliverable.xlsx' + (on && on.checked && src ? '?sop=' + encodeURIComponent(src) : '')); toast('成果物を生成しています…'); });
       $('#dvMap').addEventListener('click', function () { G.libView = { id: J.job.template_id }; setTab('library'); });
     }).catch(fail);
   }

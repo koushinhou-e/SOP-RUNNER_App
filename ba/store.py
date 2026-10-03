@@ -9,6 +9,7 @@ import shutil
 import threading
 
 ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{4,63}$")
+IMG_RE = re.compile(r"^img-\d{14}-[0-9a-f]{8}$")
 TYPES = {"excel_template": ".xlsx", "param_sheet": ".xlsx", "procedure": ".docx", "command_set": None}
 _lock = threading.RLock()
 
@@ -45,7 +46,7 @@ def safe_name(name):
 class Store:
     def __init__(self, root):
         self.root = os.path.abspath(root)
-        for d in ("library", "jobs", "sop_sessions", "exports"):
+        for d in ("library", "jobs", "sop_sessions", "sop_images", "exports"):
             os.makedirs(os.path.join(self.root, d), exist_ok=True)
 
     # ---------- library ----------
@@ -164,6 +165,35 @@ class Store:
             p = self._sop_path(key)
             if os.path.exists(p):
                 os.remove(p)
+
+    # ---------- 証跡画像（手順実行） ----------
+    def image_save(self, data):
+        """PNG/JPEG を data/sop_images/ に保存し、メタデータを返す。"""
+        from .images import sniff
+        fmt, w, h = sniff(data)
+        img_id = "img-%s-%s" % (datetime.datetime.now().strftime("%Y%m%d%H%M%S"), secrets.token_hex(4))
+        ext = "png" if fmt == "png" else "jpg"
+        with open(os.path.join(self.root, "sop_images", img_id + "." + ext), "wb") as f:
+            f.write(data)
+        return {"id": img_id, "ext": ext, "mime": "image/" + fmt, "w": w, "h": h, "size": len(data)}
+
+    def image_path(self, img_id):
+        if not IMG_RE.match(img_id or ""):
+            raise KeyError("bad image id")
+        for ext in ("png", "jpg"):
+            p = os.path.join(self.root, "sop_images", img_id + "." + ext)
+            if os.path.exists(p):
+                return p
+        raise KeyError(img_id)
+
+    def image_delete(self, img_id):
+        try:
+            os.remove(self.image_path(img_id))
+        except KeyError:
+            pass
+
+    def sop_get(self, key):
+        return read_json(self._sop_path(key))
 
     def export_path(self, name):
         return os.path.join(self.root, "exports", safe_name(name))

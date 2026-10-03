@@ -121,7 +121,7 @@ class Service:
                 val = (job.get("inputs") or {}).get(it["id"], "")
             else:
                 val = ""
-            errs = rules.validate(it, val) if kind != "none" else []
+            errs = rules.validate(it, val) if kind not in ("none", "evidence") else []
             out.append({"id": it["id"], "sheet": it["sheet"], "cell": it["cell"], "label": it["label"], "kind": kind,
                         "key": src.get("key"), "value": val, "errors": errs})
         return out
@@ -177,7 +177,23 @@ class Service:
                                   "worker": self._worker(job)}, out)
         return out
 
-    def export_deliverable(self, job):
+    def evidence_images(self, sop_key):
+        """手順実行セッションの証跡画像を [(手順番号, 手順名, 説明, キー, 画像パス, メタ)] で返す（手順順）。"""
+        s = self.store.sop_get(sop_key) if sop_key else None
+        if not s:
+            return []
+        out = []
+        for no, st in enumerate(s.get("steps") or [], 1):
+            imgs = ((s.get("results") or {}).get(st.get("id")) or {}).get("images") or {}
+            for req in st.get("evidence") or []:
+                for meta in imgs.get(req.get("id")) or []:
+                    try:
+                        out.append((no, st.get("title", ""), req.get("desc", ""), req.get("key", ""), self.store.image_path(meta.get("id")), meta))
+                    except KeyError:
+                        continue
+        return out
+
+    def export_deliverable(self, job, sop_key=None):
         tpl = self._template(job)
         if not tpl:
             raise ValueError("この作業には成果物テンプレートが選択されていません")
@@ -186,7 +202,8 @@ class Service:
         values = {r["id"]: r["value"] for r in res if r["kind"] != "none"}
         name = "%s_%s_%s.xlsx" % (os.path.splitext(tpl.get("original_name") or tpl["name"])[0], job.get("server", ""), datetime.datetime.now().strftime("%Y%m%d-%H%M%S"))
         out = self.store.export_path(name)
-        written = fillmod.fill_template(path, tpl.get("items", []), values, out)
+        evidence = self.evidence_images(sop_key) if sop_key else None
+        written = fillmod.fill_template(path, tpl.get("items", []), values, out, evidence=evidence)
         return out, written
 
     # ---------------- samples ----------------

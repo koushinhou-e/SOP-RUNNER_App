@@ -24,6 +24,7 @@ WEB_DIR = os.path.join(APP_DIR, "web")
 CSP = ("default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; "
        "connect-src 'self'; font-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
 MAX_UPLOAD = 50 * 1024 * 1024
+MAX_IMAGE = 20 * 1024 * 1024
 
 
 class _Server(ThreadingHTTPServer):
@@ -295,10 +296,27 @@ class Handler(BaseHTTPRequestHandler):
                 out = S.export_compare(job)
                 return self._file(out, os.path.basename(out))
             if n == 3 and parts[2] == "deliverable.xlsx":
-                out, _ = S.export_deliverable(job)
+                out, _ = S.export_deliverable(job, (qs.get("sop") or [None])[0])
                 return self._file(out, os.path.basename(out))
         # ----- SOP runner sessions -----
         if p0 == "sop":
+            if n == 2 and parts[1] == "images" and method == "POST":
+                data = self._body()
+                if len(data) > MAX_IMAGE:
+                    raise HttpError(413, "画像が大きすぎます（上限 %d MB）" % (MAX_IMAGE // 1024 // 1024))
+                try:
+                    return self._send(200, st.image_save(data))
+                except ValueError as e:
+                    raise HttpError(400, str(e))
+            if n == 3 and parts[1] == "images" and method in ("GET", "HEAD"):
+                try:
+                    p = st.image_path(parts[2])
+                except KeyError:
+                    raise HttpError(404, "画像が見つかりません")
+                return self._file(p, ctype="image/png" if p.endswith(".png") else "image/jpeg")
+            if n == 3 and parts[1] == "images" and method == "DELETE":
+                st.image_delete(parts[2])
+                return self._send(200, {"ok": True})
             if n == 2 and parts[1] == "sessions" and method == "GET":
                 return self._send(200, {"items": st.sop_list()})
             if n == 3 and parts[1] == "sessions" and method == "PUT":

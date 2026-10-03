@@ -18,7 +18,7 @@ APP = [
     ("toast('解析完成：' + S.steps.length + ' 个步骤')", "toast('解析完了：' + S.steps.length + ' 手順')", 1),
     ("alert('解析失败：' + e.message)", "alert('解析に失敗しました：' + e.message)", 1),
     ("toast('请先填写执行者姓名')", "toast('先に実施者名を入力してください')", 2),
-    ("exportRecordDocx(S, 'simple-table', S.exportLang || 'ja')", "exportRecordDocx(S, 'simple-table', 'ja')", 1),
+    ("exportRecordDocx(S, 'simple-table', S.exportLang || 'ja')", "(window.SopEvidence ? SopEvidence.exportDocx(S) : exportRecordDocx(S, 'simple-table', 'ja'))", 1),
     ("toast('已导出 Word 执行记录')", "toast('Word の実施記録を出力しました')", 1),
     ("'不是 SOP Runner 的 JSON 备份'", "'SOP Runner の JSON バックアップではありません'", 1),
     ("'本机已有此文档的进度，用备份覆盖？'", "'この文書の進捗が既にあります。バックアップで上書きしますか？'", 1),

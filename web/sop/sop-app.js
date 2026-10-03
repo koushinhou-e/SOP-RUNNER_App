@@ -44,18 +44,19 @@
   function curIndex() { for (var i = 0; i < S.steps.length; i++) { var r = S.results[S.steps[i].id]; if (!r || !r.confirmedAt) return i; } return S.steps.length; }
   function res(st) { return S.results[st.id] || (S.results[st.id] = { values: {}, note: '', anomaly: false, confirmedAt: null }); }
   function isFilled(inp, v) { return inp.type === 'check' ? v === true : (v != null && String(v).trim() !== ''); }
-  function missing(st) { var r = res(st); return st.inputs.filter(function (inp) { return !inp.optional && !isFilled(inp, r.values[inp.id]); }); }
+  function missing(st) { var r = res(st); var m = st.inputs.filter(function (inp) { return !inp.optional && !isFilled(inp, r.values[inp.id]); }); return window.SopHooks && SopHooks.missingExtra ? m.concat(SopHooks.missingExtra(st, r)) : m; }
 
   /* ---------- 导入 ---------- */
   function importDocx(file) {
     if (!/\.docx$/i.test(file.name)) { toast('.docx ファイルを選択してください（旧形式の .doc は非対応です。Word で .docx として保存し直してください）'); return; }
+    if (window.SopHooks && SopHooks.onImport) SopHooks.onImport(file);
     file.arrayBuffer().then(function (buf) {
       var u8 = new Uint8Array(buf), hash = hashBytes(u8), key = PREFIX + file.name + ':' + hash;
       var old = load(key);
       if (old && confirm('この文書の保存済みの進捗があります（' + countDone(old) + '/' + old.steps.length + ' 手順確認済み）。\nOK = 前回の続きから再開／キャンセル = 再解析して上書き')) { openSession(old); save(); render(); toast('進捗を復元しました'); return; }
       return SopParser.parseDocx(buf).then(function (parsed) {
         if (!parsed.steps.length) { toast('手順を検出できませんでした'); return; }
-        newSession(file.name, hash, parsed); render();
+        newSession(file.name, hash, parsed); if (window.SopHooks && SopHooks.afterParse) SopHooks.afterParse(S); render();
         toast('解析完了：' + S.steps.length + ' 手順');
       });
     }).catch(function (e) { console.error(e); alert('解析に失敗しました：' + e.message); });
@@ -71,7 +72,7 @@
   function stamp() { var d = new Date(); return d.getFullYear() + Fmt.pad(d.getMonth() + 1) + Fmt.pad(d.getDate()) + '-' + Fmt.pad(d.getHours()) + Fmt.pad(d.getMinutes()); }
   function exportDocx() {
     if (!S.executor.trim()) { toast('先に実施者名を入力してください'); var el = document.querySelector('[data-bind=executor]'); if (el) el.focus(); return; }
-    exportRecordDocx(S, 'simple-table', 'ja').then(function (blob) { download(blob, baseName() + '_実施記録_' + stamp() + '.docx'); toast('Word の実施記録を出力しました'); });
+    (window.SopEvidence ? SopEvidence.exportDocx(S) : exportRecordDocx(S, 'simple-table', 'ja')).then(function (blob) { download(blob, baseName() + '_実施記録_' + stamp() + '.docx'); toast('Word の実施記録を出力しました'); });
   }
   function exportJson() {
     var blob = new Blob([JSON.stringify({ format: 'sop-runner-run', version: 1, exportedAt: nowIso(), state: S }, null, 2)], { type: 'application/json' });
@@ -152,6 +153,7 @@
     var h = '<div class="card"><div class="row" style="justify-content:space-between"><div><b>編集モード</b> <span class="muted">全 <b id="stepCount">' + S.steps.length + '</b> 手順・入力項目 <b id="inputCount">' + nIn + '</b> 件。分割の誤りを修正してから「実行開始」をクリックしてください。</span></div>' +
       '<div class="row"><label>実施者 <input type="text" data-bind="executor" value="' + esc(S.executor) + '" placeholder="氏名（必須）" style="width:160px"></label><button class="primary" data-act="start" id="btnStart">実行開始 ▶</button></div></div>' +
       '<p class="muted" style="margin:6px 0 0">ヒント：作業内容で行全体を `バッククォート` で囲むとコマンド（コピーボタン付き）、行内の `xxx` はインラインコードになります。テキスト修正後は「入力を再検出」をクリックしてください。</p></div>';
+    if (window.SopHooks && SopHooks.editHeader) h += SopHooks.editHeader();
     h += '<div class="ins"><button class="insbtn" data-act="insert" data-at="0">＋ 先頭に手順を挿入</button></div>';
     S.steps.forEach(function (st, i) {
       h += '<div class="ed" data-sid="' + st.id + '"><div class="hd"><span class="num">#' + (i + 1) + '</span>' +
@@ -173,7 +175,7 @@
             '<td><input type="text" style="width:70px" data-inped="unit" data-sid="' + st.id + '" data-iid="' + inp.id + '" value="' + esc(inp.unit) + '"></td>' +
             '<td><input type="checkbox" data-inped="optional" data-sid="' + st.id + '" data-iid="' + inp.id + '"' + (inp.optional ? ' checked' : '') + '></td>' +
             '<td><button class="small danger" data-act="delInput" data-sid="' + st.id + '" data-iid="' + inp.id + '">✕</button></td></tr>';
-        }).join('') + '</table><button class="small" data-act="addInput" data-sid="' + st.id + '" style="margin-top:6px">＋ 入力項目を追加</button></div></div></div>';
+        }).join('') + '</table><button class="small" data-act="addInput" data-sid="' + st.id + '" style="margin-top:6px">＋ 入力項目を追加</button></div>' + (window.SopHooks && SopHooks.editExtra ? SopHooks.editExtra(st) : '') + '</div></div>';
       h += '<div class="ins"><button class="insbtn" data-act="insert" data-at="' + (i + 1) + '">＋ 手順を挿入</button></div>';
     });
     app.innerHTML = h;
@@ -219,6 +221,7 @@
       });
       m += '</div>';
     }
+    if (window.SopHooks && SopHooks.runExtra) m += SopHooks.runExtra(st, r, confirmed);
     m += '<div class="lbl">備考（任意）</div><textarea rows="2" data-note="1" lang="ja"' + ro + '>' + esc(r.note) + '</textarea>';
     m += '<div class="row" style="margin-top:8px"><label class="anom"><input type="checkbox" data-anom="1"' + (r.anomaly ? ' checked' : '') + ro + '> 異常としてマーク</label></div>';
     m += '<div class="actions">';
@@ -295,7 +298,7 @@
         var nx = S.steps[i + 1]; if (!nx) break;
         st.content = [st.content, nx.content].filter(Boolean).join('\n');
         st.expected = [st.expected, nx.expected].filter(Boolean).join('\n');
-        st.inputs = st.inputs.concat(nx.inputs); S.steps.splice(i + 1, 1); save(); render(); toast('結合しました'); break;
+        st.inputs = st.inputs.concat(nx.inputs); st.evidence = (st.evidence || []).concat(nx.evidence || []); S.steps.splice(i + 1, 1); save(); render(); toast('結合しました'); break;
       case 'split':
         var ta = document.querySelector('textarea[data-ed=content][data-sid="' + sid + '"]'), pos = ta ? ta.selectionStart : 0;
         var a = st.content.slice(0, pos).replace(/\s+$/, ''), c = st.content.slice(pos).replace(/^\s+/, '');
@@ -347,6 +350,6 @@
   window.addEventListener('dragover', function (e) { e.preventDefault(); });
   window.addEventListener('drop', function (e) { e.preventDefault(); if (app.offsetParent !== null && !S && e.dataTransfer && e.dataTransfer.files[0] && !e.target.closest('#drop')) importDocx(e.dataTransfer.files[0]); });
 
-  window.SopApp = { state: function () { return S; }, importFile: importDocx, render: render, home: function () { S = null; render(); } }; // 便于调试/测试
+  window.SopApp = { state: function () { return S; }, importFile: importDocx, render: render, save: save, refreshGate: refreshGate, home: function () { S = null; render(); } }; // 便于调试/测试
   SopStore.init().then(render);
 })();
