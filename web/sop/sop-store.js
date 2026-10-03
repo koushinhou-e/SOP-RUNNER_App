@@ -1,4 +1,4 @@
-/* v1 SOP Runner 的存储适配层：会话保存到本机服务器（data/sop_sessions/*.json），localStorage 作为备份。 */
+/* v1 SOP Runner の保存アダプタ：セッションをローカルサーバ（data/sop_sessions/*.json）に保存し、localStorage は予備。 */
 (function () {
   'use strict';
   var cache = {}, chains = {};
@@ -15,9 +15,9 @@
       var c = copy(S), key = S.key;
       cache[key] = c;
       try { localStorage.setItem(key, JSON.stringify(c)); } catch (e) { }
-      chains[key] = (chains[key] || Promise.resolve()).then(function () {   // 按顺序写入，避免并发乱序
+      chains[key] = (chains[key] || Promise.resolve()).then(function () {   // 順番に書き込み、並行時の順序逆転を防ぐ
         return Api.put('/api/sop/sessions/' + encodeURIComponent(key), c);
-      }).catch(function (e) { if (window.toast) toast('进度保存到服务器失败：' + e.message); });
+      }).catch(function (e) { if (window.toast) toast('進捗をサーバに保存できませんでした：' + e.message); });
     },
     load: function (key) { return cache[key] ? copy(cache[key]) : null; },
     list: function () { return Object.keys(cache).map(function (k) { return copy(cache[k]); }); },

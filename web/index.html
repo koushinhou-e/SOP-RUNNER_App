@@ -1,24 +1,24 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="ja">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="ba-token" content="__TOKEN__">
-<title>构建作业助手 v2 — 構築作業アシスタント</title>
+<title>構築作業アシスタント v2</title>
 <link rel="stylesheet" href="/sop/sop.css">
 <link rel="stylesheet" href="/css/app.css">
 </head>
 <body>
 <header class="top" id="nav">
-  <h1>🛠 构建作业助手 v2</h1>
-  <span class="badge off" title="只监听 127.0.0.1，不访问外部网络">离线 · 仅本机</span>
+  <h1>🛠 構築作業アシスタント v2</h1>
+  <span class="badge off" title="127.0.0.1 のみで待ち受け、外部ネットワークにはアクセスしません">オフライン・ローカル専用</span>
   <nav class="tabs">
-    <button data-tab="library" class="on">模板库</button>
-    <button data-tab="jobs">作业</button>
-    <button data-tab="sop">手顺执行</button>
+    <button data-tab="library" class="on">テンプレートライブラリ</button>
+    <button data-tab="jobs">作業</button>
+    <button data-tab="sop">手順実行</button>
   </nav>
   <span class="sp"></span>
-  <button id="btnQuit" title="停止本机服务">退出</button>
+  <button id="btnQuit" title="ローカルサーバを停止">終了</button>
 </header>
 <section id="tab-library" class="tab"><main id="library"></main></section>
 <section id="tab-jobs" class="tab hidden"><main id="jobs"></main></section>

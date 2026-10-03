@@ -1,6 +1,7 @@
+/* Synced from v1 sop-runner/src/app.css by tools/sync_from_v1.py (UI 文言は日本語化済み) — 手で編集しないこと。 */
 *{box-sizing:border-box}
 html,body{margin:0;height:100%}
-body{font-family:"Yu Gothic UI","Yu Gothic","Meiryo","Hiragino Sans","Noto Sans CJK JP","Microsoft YaHei","PingFang SC",sans-serif;font-size:14px;color:#1f2933;background:#f3f5f8}
+body{font-family:"Yu Gothic UI",Meiryo,"Hiragino Sans",sans-serif;font-size:14px;color:#1f2933;background:#f3f5f8}
 button{font:inherit;cursor:pointer;border:1px solid #c5ccd6;background:#fff;border-radius:6px;padding:6px 12px;color:#1f2933}
 button:hover:not(:disabled){background:#eef2f7}
 button:disabled{opacity:.45;cursor:not-allowed}

@@ -17,7 +17,7 @@ function startServer() {
   return new Promise((resolve, reject) => {
     const proc = spawn(PY, ['-I', '-S', path.join(ROOT, 'app.py'), '--no-browser', '--port', '0', '--data-dir', DATA], { cwd: os.tmpdir() });
     let buf = '';
-    proc.stdout.on('data', d => { buf += d; const m = buf.match(/running at: (http:\/\/127\.0\.0\.1:\d+\/)/); if (m) resolve({ proc, url: m[1] }); });
+    proc.stdout.on('data', d => { buf += d; const m = buf.match(/起動しました: (http:\/\/127\.0\.0\.1:\d+\/)/); if (m) resolve({ proc, url: m[1] }); });
     proc.stderr.on('data', d => process.stderr.write('[server] ' + d));
     proc.on('exit', c => reject(new Error('server exited ' + c + ' ' + buf)));
     setTimeout(() => reject(new Error('server start timeout')), 15000);
@@ -48,20 +48,20 @@ function startServer() {
     await page.waitForSelector('.up[data-type=param_sheet]');
     await page.setInputFiles('.up[data-type=param_sheet] input[type=file]', S('EC2パラメータシート_sample.xlsx'));
     await page.waitForSelector('.lib-param_sheet tr[data-id]');
-    ok((await page.textContent('.lib-param_sheet')).includes('参数 13 × 服务器 web01, web02, db01'), '参数表解析：13 参数 × 3 服务器');
+    ok((await page.textContent('.lib-param_sheet')).includes('パラメータ 13 × サーバ web01, web02, db01'), '参数表解析：13 参数 × 3 服务器');
     await page.setInputFiles('#upCmd input[type=file]', S('command_templates_sample.json'));
     await page.waitForSelector('.lib-command_set tr[data-id]');
     await page.setInputFiles('.up[data-type=procedure] input[type=file]', S('Webサーバ定期パッチ適用手順書.docx'));
     await page.waitForSelector('.lib-procedure tr[data-id]');
     await page.setInputFiles('.up[data-type=excel_template] input[type=file]', S('構築結果報告書_template_sample.xlsx'));
     await page.waitForSelector('#itemTable');
-    ok((await page.textContent('#edCount')).includes('共 39 项'), '交付物模板检测：39 项');
+    ok((await page.textContent('#edCount')).includes('全 39 項目'), '交付物模板检测：39 项');
 
     console.log('2) 模板编辑：映射 / 调整检测项');
     await page.selectOption('#edParam', { label: 'EC2パラメータシート_sample' });
     await page.waitForFunction(() => document.querySelectorAll('#itemTable option[value^="param:"]').length > 0);
     await page.click('#edAuto');
-    await page.waitForFunction(() => /参数 11/.test(document.querySelector('#edCount').textContent));
+    await page.waitForFunction(() => /パラメータ 11/.test(document.querySelector('#edCount').textContent));
     ok(true, '按标签自动映射：11 项映射到参数');
     ok(await page.locator('#gridPrev td.hit.param').count() === 11, '网格预览：11 个蓝色(参数)单元格');
     await page.click('#gridPrev td[data-addr="C7"]');           // 点击空单元格 → 添加检测项
@@ -73,7 +73,7 @@ function startServer() {
     await row22.locator('input[data-f=label]').fill('特記事項（任意）');
     const rowE9 = page.locator('#itemTable tr', { has: page.locator('input[data-f=cell][value="E9"]') });
     await rowE9.locator('button[data-f=del]').click();
-    await page.waitForFunction(() => /共 39 项/.test(document.querySelector('#edCount').textContent));   // +1 (C7) -1 (E9)
+    await page.waitForFunction(() => /全 39 項目/.test(document.querySelector('#edCount').textContent));   // +1 (C7) -1 (E9)
     await page.evaluate(() => document.querySelector('#gridPrev').scrollTo(0, 0));
     await shot(); await page.screenshot({ path: path.join(SHOT, '02-template-mapping.png') });
     await page.click('#edSave');
@@ -95,7 +95,7 @@ function startServer() {
     await page.fill('#ceTable tr[data-i="9"] textarea', 'aws ec2 describe-instances --instance-ids {{instance_id}} | less');
     await page.waitForFunction(() => document.querySelectorAll('#cePreview .cmdcard[data-cmd="9"] .warn').length >= 3);
     const warns = await page.textContent('#cePreview .cmdcard[data-cmd="9"]');
-    ok(/no-cli-pager/.test(warns) && /--output/.test(warns) && /交互/.test(warns), 'lint：缺 --no-cli-pager / --output、交互式 less → 警告');
+    ok(/no-cli-pager/.test(warns) && /--output/.test(warns) && /対話型/.test(warns), 'lint：缺 --no-cli-pager / --output、交互式 less → 警告');
     await page.click('#ceTable tr[data-i="9"] button[data-f=del]');
     await page.click('[data-act=backLib]');
     // 重命名 + 删除
@@ -118,7 +118,7 @@ function startServer() {
     await page.selectOption('#jfPr', prId);
     await page.click('#jfSave');
     await page.waitForSelector('#inTable');
-    ok(/有 \d+ 项不符合规则/.test(await page.textContent('#inStat')), '未填写时显示错误统计');
+    ok(/ルール違反 \d+ 件/.test(await page.textContent('#inStat')), '未填写时显示错误统计');
     const inId = c => `#inTable [data-in="構築結果!${c}"]`;
     await page.fill(inId('C3'), 'サンプル基盤構築');
     await page.fill(inId('C4'), '2026/13/40');
@@ -134,7 +134,7 @@ function startServer() {
     await page.fill(inId('C7'), 'MNG-0042');
     for (let r = 9; r <= 19; r++) await page.selectOption(inId('D' + r), 'OK');
     await page.selectOption(inId('C21'), '合格');
-    ok(await page.locator('#inTable .invalid').count() === 0 && /全部 \d+ 项通过/.test(await page.textContent('#inStat')), '修正后全部通过');
+    ok(await page.locator('#inTable .invalid').count() === 0 && /全 \d+ 項目 チェック OK/.test(await page.textContent('#inStat')), '修正后全部通过');
     await page.waitForTimeout(500);
 
     console.log('5) 命令生成');
@@ -175,7 +175,7 @@ function startServer() {
     console.log('7) 交付物输出');
     await page.click('[data-jt=deliver]');
     await page.waitForSelector('#dvTable');
-    ok((await page.textContent('#jobBody')).includes('将写入 28 个单元格'), '将写入 28 个单元格（参数 11 + 输入 17；可选的特记事项未填）');
+    ok((await page.textContent('#jobBody')).includes('28 セルに書き込みます'), '将写入 28 个单元格（参数 11 + 输入 17；可选的特记事项未填）');
     await shot(); await page.screenshot({ path: path.join(SHOT, '06-deliverable.png') });
     const dv = await dl('#dvExport', 'deliverable.xlsx');
     ok(/web01_\d{8}-\d{6}\.xlsx$/.test(dv.name), '交付物导出：' + dv.name);

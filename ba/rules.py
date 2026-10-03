@@ -1,9 +1,9 @@
-"""入力チェック規則 / 输入校验规则。
+"""入力チェック規則。
 
-规则结构 (item["rules"]):
+ルールの構造 (item["rules"]):
   {"required": bool, "preset": "ipv4"|..., "pattern": "regex", "min": num, "max": num, "options": [...] }
-item["type"] in {"text","number","dropdown","date"}; dropdown 的选项在 item["options"]。
-同样的逻辑在 web/js/rules.js 中实现（浏览器实时显示），两者共用 tests/vectors/rules_vectors.json 做一致性测试。
+item["type"] in {"text","number","dropdown","date"}; dropdown の選択肢は item["options"]。
+同じロジックを web/js/rules.js にも実装（ブラウザでのリアルタイム表示用）。両者は tests/vectors/rules_vectors.json で一致を検証する。
 """
 import json
 import os
@@ -15,14 +15,14 @@ with open(_PRESETS_PATH, encoding="utf-8") as _f:
     PRESETS = json.load(_f)
 
 MESSAGES = {
-    "required": "必填",
-    "options": "不在允许的选项中",
-    "number": "不是数字",
-    "min": "小于最小值 {min}",
-    "max": "大于最大值 {max}",
-    "preset": "格式不符：{label}",
-    "pattern": "不符合正则 {pattern}",
-    "bad_pattern": "正则无效",
+    "required": "必須項目です",
+    "options": "選択肢にない値です",
+    "number": "数値ではありません",
+    "min": "最小値 {min} 未満です",
+    "max": "最大値 {max} を超えています",
+    "preset": "書式が不正です：{label}",
+    "pattern": "正規表現 {pattern} に一致しません",
+    "bad_pattern": "正規表現が無効です",
 }
 
 _NUM = re.compile(r"^[+-]?(\d+(\.\d*)?|\.\d+)$")
@@ -42,7 +42,7 @@ def to_number(v):
 
 
 def validate(item, value):
-    """返回错误列表 [{code, message}]；空列表表示通过。"""
+    """エラーのリスト [{code, message}] を返す。空リストなら OK。"""
     rules = item.get("rules") or {}
     errs = []
     s = norm(value)

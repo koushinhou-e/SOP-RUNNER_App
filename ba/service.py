@@ -29,7 +29,7 @@ class Service:
                 items = xlsx_detect.detect_workbook(path)
             except Exception as e:  # 不是有效的 xlsx
                 self.store.lib_delete(m["id"])
-                raise ValueError("无法读取 Excel 模板：%s" % e)
+                raise ValueError("Excel テンプレートを読み込めません：%s" % e)
             return self.store.lib_update(m["id"], {"items": items, "param_ref": None})
         if typ == "param_sheet":
             m = self.store.lib_create(typ, name, data, filename)
@@ -38,11 +38,11 @@ class Service:
                 parsed = paramsheet.parse(path)
             except Exception as e:
                 self.store.lib_delete(m["id"])
-                raise ValueError("无法解析参数表：%s" % e)
+                raise ValueError("パラメータシートを解析できません：%s" % e)
             return self.store.lib_update(m["id"], {"parsed": parsed})
         if typ == "procedure":
             if not data[:2] == b"PK":
-                raise ValueError("不是 .docx 文件")
+                raise ValueError(".docx ファイルではありません")
             return self.store.lib_create(typ, name, data, filename)
         raise ValueError("unknown type")
 
@@ -180,7 +180,7 @@ class Service:
     def export_deliverable(self, job):
         tpl = self._template(job)
         if not tpl:
-            raise ValueError("作业未选择交付物模板")
+            raise ValueError("この作業には成果物テンプレートが選択されていません")
         path, _ = self.store.lib_file(tpl["id"])
         res = self.resolve(job)
         values = {r["id"]: r["value"] for r in res if r["kind"] != "none"}

@@ -1,7 +1,7 @@
-/* 输入校验 + 比对判定（与 ba/rules.py、ba/compare.py 逻辑一致；共用 tests/vectors/*.json 做一致性测试） */
+/* 入力チェック＋比較判定（ba/rules.py・ba/compare.py と同じロジック。tests/vectors/*.json で一致を検証） */
 (function (root) {
   'use strict';
-  var MESSAGES = { required: '必填', options: '不在允许的选项中', number: '不是数字', min: '小于最小值 {min}', max: '大于最大值 {max}', preset: '格式不符：{label}', pattern: '不符合正则 {pattern}', bad_pattern: '正则无效' };
+  var MESSAGES = { required: '必須項目です', options: '選択肢にない値です', number: '数値ではありません', min: '最小値 {min} 未満です', max: '最大値 {max} を超えています', preset: '書式が不正です：{label}', pattern: '正規表現 {pattern} に一致しません', bad_pattern: '正規表現が無効です' };
   var PRESETS = {};
   function fmt(s, o) { return s.replace(/\{(\w+)\}/g, function (_, k) { return o[k]; }); }
   function norm(v) { return v == null ? '' : String(v).normalize('NFKC').trim(); }
@@ -43,6 +43,6 @@
     return 'mismatch';
   }
   var api = { validate: validate, judge: judge, setPresets: function (p, m) { PRESETS = p || {}; if (m) MESSAGES = m; }, presets: function () { return PRESETS; },
-    STATUS_LABEL: { match: '一致', mismatch: '不一致', missing: '未填写', no_expected: '无期待值' } };
+    STATUS_LABEL: { match: '一致', mismatch: '不一致', missing: '未入力', no_expected: '期待値なし' } };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.Rules = api;
 })(this);

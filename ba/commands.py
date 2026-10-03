@@ -1,10 +1,10 @@
-"""确认命令生成：{{param}} 模板 → 具体命令（只生成文本，绝不执行）。
+"""確認コマンド生成：{{param}} テンプレート → 具体的なコマンド（テキスト生成のみ。実行は一切しない）。
 
-安全约定（lint 会检查）:
-  * aws 命令必须带 --no-cli-pager 和 --output（避免分页器/交互）
-  * ssh 必须带 -o BatchMode=yes（无密码提示，失败即退出）
-  * 检出可能修改资源的 aws 子命令、交互式工具、破坏性命令 → 警告
-  * 参数值若包含 shell 特殊字符，会按目标（sh / ps1）加单引号转义
+安全上の約束（lint でチェック）:
+  * aws コマンドには --no-cli-pager と --output を必須とする（ページャ・対話を防ぐ）
+  * ssh には -o BatchMode=yes を必須とする（パスワード入力待ちにせず、失敗したら即終了）
+  * リソースを変更しうる aws サブコマンド、対話型ツール、破壊的コマンドを検出 → 警告
+  * パラメータ値にシェルの特殊文字が含まれる場合、出力先（sh / ps1）に合わせてシングルクォートでエスケープ
 """
 import datetime
 import re
@@ -49,19 +49,19 @@ def lint(cmd):
     w = []
     if AWS.search(cmd):
         if "--no-cli-pager" not in cmd:
-            w.append("aws 命令缺少 --no-cli-pager（可能进入分页器）")
+            w.append("aws コマンドに --no-cli-pager がありません（ページャで止まる可能性）")
         if not re.search(r"--output(\s|=)", cmd):
-            w.append("aws 命令缺少 --output（输出格式不确定）")
+            w.append("aws コマンドに --output がありません（出力形式が不定）")
         if AWS_MUTATING.search(cmd):
-            w.append("疑似会修改资源的 aws 子命令（非只读）")
+            w.append("リソースを変更する可能性のある aws サブコマンドです（参照系ではありません）")
     if SSH.search(cmd) and "BatchMode=yes" not in cmd:
-        w.append("ssh 缺少 -o BatchMode=yes（可能等待密码/确认输入）")
+        w.append("ssh に -o BatchMode=yes がありません（パスワード・確認入力待ちになる可能性）")
     if INTERACTIVE.search(cmd):
-        w.append("包含交互式程序（less/vi/top 等），非交互会话中会卡住")
+        w.append("対話型プログラム（less/vi/top など）を含みます。非対話セッションでは止まります")
     if SUDO_NO_N.search(cmd):
-        w.append("sudo 未加 -n，可能等待密码")
+        w.append("sudo に -n がありません（パスワード入力待ちになる可能性）")
     if DESTRUCTIVE.search(cmd):
-        w.append("包含破坏性/变更类命令")
+        w.append("破壊的・変更系のコマンドを含みます")
     return w
 
 
@@ -84,10 +84,9 @@ def generate(templates, ctx):
 def to_script(generated, target, meta):
     now = meta.get("now") or datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     head = [
-        "構築作業助手 v2 で生成した確認コマンド / 构建作业助手 v2 生成的确认命令",
+        "構築作業アシスタント v2 で生成した確認コマンド",
         "作業: %s / サーバ: %s / 生成日時: %s" % (meta.get("job_name", ""), meta.get("server", ""), now),
         "このスクリプトは自動実行されません。内容を確認してから手動で実行してください。",
-        "本脚本不会被自动执行。请审阅后再手动运行。",
     ]
     lines = []
     if target == "ps1":
@@ -104,7 +103,7 @@ def to_script(generated, target, meta):
         for w in g["warnings"]:
             lines.append("# WARNING: " + w)
         if g["missing"]:
-            lines.append("# MISSING: " + ", ".join(g["missing"]) + "  (未解決のプレースホルダ / 未解析的占位符)")
+            lines.append("# MISSING: " + ", ".join(g["missing"]) + "  (未解決のプレースホルダ)")
         if target == "ps1":
             lines.append("Write-Host '### %s'" % title.replace("'", "''"))
             cmd = g["ps1"]

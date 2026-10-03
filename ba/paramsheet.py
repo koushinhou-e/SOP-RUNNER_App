@@ -39,7 +39,7 @@ def parse(path):
         res = _parse_sheet(ws)
         if res and res["params"]:
             return res
-    raise ValueError("未找到参数表头（需要一行包含“項目”或“キー”等列名）")
+    raise ValueError("パラメータシートの見出し行が見つかりません（「項目」や「キー」などの列名を含む行が必要です）")
 
 
 def _parse_sheet(ws):

@@ -1,4 +1,4 @@
-"""参数比对：期待值（参数表） vs 实测值（作业中填写）。"""
+"""パラメータ比較：期待値（パラメータシート）と実測値（作業中に入力）の突き合わせ。"""
 import datetime
 import re
 import unicodedata
@@ -37,7 +37,7 @@ def judge(expected, actual):
     return "mismatch"
 
 
-STATUS_LABEL = {"match": "一致", "mismatch": "不一致", "missing": "未填写", "no_expected": "无期待值"}
+STATUS_LABEL = {"match": "一致", "mismatch": "不一致", "missing": "未入力", "no_expected": "期待値なし"}
 
 
 def build_rows(params, server, state, hints=None):

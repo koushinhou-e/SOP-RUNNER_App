@@ -41,13 +41,13 @@ class CommandsTest(unittest.TestCase):
     def test_lint(self):
         self.assertTrue(any("--no-cli-pager" in w for w in commands.lint("aws ec2 describe-instances --output json")))
         self.assertTrue(any("--output" in w for w in commands.lint("aws ec2 describe-instances --no-cli-pager")))
-        self.assertTrue(any("非只读" in w for w in commands.lint("aws ec2 terminate-instances --instance-ids i-1 --output text --no-cli-pager")))
-        self.assertTrue(any("非只读" in w for w in commands.lint("aws --region ap-northeast-1 ec2 stop-instances --output text --no-cli-pager")))
+        self.assertTrue(any("参照系ではありません" in w for w in commands.lint("aws ec2 terminate-instances --instance-ids i-1 --output text --no-cli-pager")))
+        self.assertTrue(any("参照系ではありません" in w for w in commands.lint("aws --region ap-northeast-1 ec2 stop-instances --output text --no-cli-pager")))
         self.assertTrue(any("BatchMode" in w for w in commands.lint("ssh ec2-user@192.0.2.11 'free -g'")))
-        self.assertTrue(any("交互" in w for w in commands.lint("ssh -o BatchMode=yes h 'less /var/log/messages'")))
+        self.assertTrue(any("対話型" in w for w in commands.lint("ssh -o BatchMode=yes h 'less /var/log/messages'")))
         self.assertTrue(any("sudo" in w for w in commands.lint("ssh -o BatchMode=yes h 'sudo cat /etc/shadow'")))
         self.assertEqual(commands.lint("ssh -o BatchMode=yes h 'sudo -n cat /etc/hosts'"), [])
-        self.assertTrue(any("破坏" in w for w in commands.lint("ssh -o BatchMode=yes h 'rm -rf /tmp/x'")))
+        self.assertTrue(any("破壊" in w for w in commands.lint("ssh -o BatchMode=yes h 'rm -rf /tmp/x'")))
         self.assertEqual(commands.lint("aws ec2 describe-instances --output text --no-cli-pager"), [])
 
     def test_missing_placeholder_is_commented_out(self):

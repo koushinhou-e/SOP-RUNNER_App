@@ -1,3 +1,4 @@
+/* Synced from v1 sop-runner/src/parser.js by tools/sync_from_v1.py (UI 文言は日本語化済み) — 手で編集しないこと。 */
 /* ===================== DOCX → 步骤 解析器 =====================
  * 只依赖 JSZip + 浏览器内置 DOMParser。不发起任何网络请求。
  * 输出: { title, steps:[{section,title,context,content,expected,inputs[]}] }
@@ -198,7 +199,7 @@ var SopParser = (function () {
           if (um && !/^[0-9]+$/.test(um[1]) && !/[をにがはでと]/.test(um[1])) unit = um[1];
           if (!label) label = cleanLabel(after.split(/[\s　]{2,}|※/)[0]).slice(0, 30);
         }
-        if (!label) label = fallbackLabel || '记录';
+        if (!label) label = fallbackLabel || '記録';
         strong.push({ label: label, type: guessType(label, marker), unit: unit, line: li });
         last = m.index + marker.length; found++;
       }
@@ -215,7 +216,7 @@ var SopParser = (function () {
       if (/記入|填写|填入/.test(t) && !/欄|表|栏|列/.test(t)) {
         var wl = cleanLabel(t.replace(/[をに]?(記入|填写|填入)[^]*$/, '')) || cleanLabel(t);
         if (wl.length > 40) wl = wl.slice(0, 38) + '…';
-        weak.push({ label: wl || fallbackLabel || '记录', type: guessType(wl), unit: '', line: li });
+        weak.push({ label: wl || fallbackLabel || '記録', type: guessType(wl), unit: '', line: li });
       }
     });
     return { strong: strong, weak: weak };
@@ -302,14 +303,14 @@ var SopParser = (function () {
           if (rl === 'content' && contentTexts.length < 2) { contentTexts.push(c.text.split('\n')[0].replace(/`/g, '')); s.content.push(contentTexts.length === 1 ? c.text : hname + '：' + c.text); return; }
           s.content.push(hname + '：' + c.text);
         });
-        s.title = ((no ? 'No.' + no + ' ' : '') + (contentTexts.join(' / ') || r.filter(function (c) { return !c.empty; }).map(function (c) { return c.text.split('\n')[0].replace(/`/g, ''); })[0] || '表格行')).slice(0, 80);
+        s.title = ((no ? 'No.' + no + ' ' : '') + (contentTexts.join(' / ') || r.filter(function (c) { return !c.empty; }).map(function (c) { return c.text.split('\n')[0].replace(/`/g, ''); })[0] || '表の行')).slice(0, 80);
         steps.push({ title: s.title, content: s.content.join('\n'), expected: s.expected.join('\n') });
       });
       return { record: true, steps: steps };
     }
     // 键值型记录表：整表 1 个步骤
     var labels = rows.map(function (r) { var c = r.filter(function (x) { return !x.empty; })[0]; return c ? c.text.split('\n')[0].replace(/`/g, '') : ''; }).filter(Boolean);
-    return { record: true, steps: [{ title: ('记录: ' + labels.slice(0, 4).join('・') + (labels.length > 4 ? '…' : '')).slice(0, 80), content: rows.map(function (r) { return r.length === 2 ? (r[0].empty ? BL : cellToLine(r[0])) + '：' + (r[1].empty ? BL : cellToLine(r[1])) : r.map(function (c) { return c.empty ? BL : cellToLine(c); }).join(' | '); }).join('\n'), expected: '' }] };
+    return { record: true, steps: [{ title: ('記録: ' + labels.slice(0, 4).join('・') + (labels.length > 4 ? '…' : '')).slice(0, 80), content: rows.map(function (r) { return r.length === 2 ? (r[0].empty ? BL : cellToLine(r[0])) + '：' + (r[1].empty ? BL : cellToLine(r[1])) : r.map(function (c) { return c.empty ? BL : cellToLine(c); }).join(' | '); }).join('\n'), expected: '' }] };
   }
 
   /* ---------- 分段 ---------- */
@@ -341,7 +342,7 @@ var SopParser = (function () {
     function newSec() { sec = { intro: [], hasItems: false, sawNumbered: false, firstIdx: steps.length }; }
     newSec();
     function sectionPath() { var p = path.slice(path.length > 1 ? 1 : 0).filter(Boolean); if (!p.length) p = path.filter(Boolean); return p.join(' › '); }
-    function heading() { var p = path.filter(Boolean); return p.length ? p[p.length - 1] : (docTitle || '步骤'); }
+    function heading() { var p = path.filter(Boolean); return p.length ? p[p.length - 1] : (docTitle || '手順'); }
     function mk(title) {
       var s = { section: sectionPath(), title: (title || '').replace(/`/g, '').trim().slice(0, 80) || heading(), context: pendingCtx, lines: [], exp: [], _exp: false };
       pendingCtx = ''; steps.push(s); return s;
@@ -427,7 +428,7 @@ var SopParser = (function () {
   async function parseDocx(arrayBuffer) {
     var zip = await JSZip.loadAsync(arrayBuffer);
     var docFile = zip.file('word/document.xml');
-    if (!docFile) throw new Error('不是有效的 Word .docx 文件（找不到 word/document.xml）');
+    if (!docFile) throw new Error('有効な Word .docx ファイルではありません（word/document.xml が見つかりません）');
     var xml = await docFile.async('string');
     var stylesXml = zip.file('word/styles.xml') ? await zip.file('word/styles.xml').async('string') : '';
     var numXml = zip.file('word/numbering.xml') ? await zip.file('word/numbering.xml').async('string') : '';

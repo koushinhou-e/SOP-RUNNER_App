@@ -20,7 +20,7 @@
       "template": "aws ec2 describe-volumes --region {{region}} --filters Name=attachment.instance-id,Values={{instance_id}} --query 'Volumes[].[VolumeId,Size,VolumeType,State]' --output text --no-cli-pager"
     },
     {
-      "title": "AMI 名称",
+      "title": "AMI 名",
       "kind": "aws",
       "checks": "os",
       "template": "aws ec2 describe-images --region {{region}} --image-ids {{ami_id}} --query 'Images[].[ImageId,Name]' --output text --no-cli-pager"

@@ -1,3 +1,4 @@
+/* Synced from v1 sop-runner/src/export.js by tools/sync_from_v1.py (UI 文言は日本語化済み) — 手で編集しないこと。 */
 /* ===================== 执行记录导出 (.docx) =====================
  * 分三层，方便以后替换为公司证跡模板：
  *   1) RecordModel.build(state)   → 纯数据（与版式无关）
@@ -34,8 +35,7 @@ var RecordModel = {
 };
 
 var ExportLabels = {
-  ja: { title: '作業実施記録', doc: '手順書名', hash: '文書ハッシュ', executor: '実施者', start: '開始日時', end: '終了日時', tz: 'タイムゾーン', total: '手順数', confirmed: '確認済', anomalies: '異常件数', exported: '出力日時', no: 'No.', step: '手順', expected: '期待結果', values: '記録値', at: '確認日時', note: '備考', anom: '異常', yes: 'あり', none: '－', footer: '本記録は SOP Runner（オフライン版）により出力されました。' },
-  zh: { title: '作业执行记录', doc: '手顺书名称', hash: '文档哈希', executor: '执行者', start: '开始时间', end: '结束时间', tz: '时区', total: '步骤数', confirmed: '已确认', anomalies: '异常数', exported: '导出时间', no: '序号', step: '步骤', expected: '期待结果', values: '记录值', at: '确认时间', note: '备注', anom: '异常', yes: '有', none: '－', footer: '本记录由 SOP Runner（离线版）生成。' }
+  ja: { title: '作業実施記録', doc: '手順書名', hash: '文書ハッシュ', executor: '実施者', start: '開始日時', end: '終了日時', tz: 'タイムゾーン', total: '手順数', confirmed: '確認済', anomalies: '異常件数', exported: '出力日時', no: 'No.', step: '手順', expected: '期待結果', values: '記録値', at: '確認日時', note: '備考', anom: '異常', yes: 'あり', none: '－', footer: '本記録は SOP Runner（オフライン版）により出力されました。' }
 };
 
 var Ox = {
@@ -80,7 +80,7 @@ var Ox = {
 
 var ExportTemplates = {
   'simple-table': {
-    name: '简单表格（横向 A4）',
+    name: 'シンプル表形式（A4 横）',
     render: function (R, L) {
       var S = 18, P = Ox.p, run = Ox.run, cell = Ox.cell;
       var body = [];

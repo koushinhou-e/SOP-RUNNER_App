@@ -121,7 +121,7 @@ class Handler(BaseHTTPRequestHandler):
     def _body(self):
         n = int(self.headers.get("Content-Length") or 0)
         if n > MAX_UPLOAD:
-            raise HttpError(413, "文件过大")
+            raise HttpError(413, "ファイルが大きすぎます")
         return self.rfile.read(n) if n else b""
 
     def _json(self):
@@ -129,7 +129,7 @@ class Handler(BaseHTTPRequestHandler):
         try:
             return json.loads(b.decode("utf-8")) if b else {}
         except ValueError:
-            raise HttpError(400, "JSON 格式错误")
+            raise HttpError(400, "JSON の形式が不正です")
 
     def _check_host(self):
         host = (self.headers.get("Host") or "").lower()
@@ -219,7 +219,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(200, S.upload(typ, fn, self._body()))
             if n == 2 and parts[1] == "command_set" and method == "POST":
                 b = self._json()
-                return self._send(200, S.create_command_set(b.get("name") or "命令模板集", b.get("templates") or []))
+                return self._send(200, S.create_command_set(b.get("name") or "コマンドテンプレート集", b.get("templates") or []))
             if n == 2 and parts[1] == "commands_preview" and method == "POST":
                 b = self._json()
                 return self._send(200, {"commands": S.preview_commands(b.get("templates") or [], b.get("param_sheet_id"), b.get("server"), b.get("globals"))})
