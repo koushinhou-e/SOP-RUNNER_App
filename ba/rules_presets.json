@@ -1,0 +1,14 @@
+{
+  "ipv4":        {"label": "IPv4 地址",        "pattern": "((25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])\\.){3}(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])", "example": "192.0.2.11"},
+  "cidr":        {"label": "CIDR",             "pattern": "((25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])\\.){3}(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])/(3[0-2]|[12]?[0-9])", "example": "192.0.2.0/24"},
+  "instance_id": {"label": "EC2 インスタンスID", "pattern": "i-([0-9a-f]{8}|[0-9a-f]{17})", "example": "i-0123456789abcdef0"},
+  "ami_id":      {"label": "AMI ID",           "pattern": "ami-([0-9a-f]{8}|[0-9a-f]{17})", "example": "ami-0abcdef1234567890"},
+  "subnet_id":   {"label": "サブネットID",       "pattern": "subnet-([0-9a-f]{8}|[0-9a-f]{17})", "example": "subnet-0123456789abcdef0"},
+  "sg_id":       {"label": "セキュリティグループID", "pattern": "sg-([0-9a-f]{8}|[0-9a-f]{17})([ ,]+sg-([0-9a-f]{8}|[0-9a-f]{17}))*", "example": "sg-0123456789abcdef0"},
+  "vpc_id":      {"label": "VPC ID",           "pattern": "vpc-([0-9a-f]{8}|[0-9a-f]{17})", "example": "vpc-0123456789abcdef0"},
+  "volume_id":   {"label": "EBS ボリュームID",   "pattern": "vol-([0-9a-f]{8}|[0-9a-f]{17})", "example": "vol-0123456789abcdef0"},
+  "instance_type": {"label": "インスタンスタイプ", "pattern": "[a-z][a-z0-9-]*\\.[a-z0-9-]+", "example": "t3.large"},
+  "hostname":    {"label": "ホスト名(FQDN)",     "pattern": "[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?(\\.[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*", "example": "web01.example.local"},
+  "date":        {"label": "日付 (YYYY-MM-DD / YYYY/MM/DD)", "pattern": "[0-9]{4}[-/](0?[1-9]|1[0-2])[-/](0?[1-9]|[12][0-9]|3[01])", "example": "2026-10-03"},
+  "integer":     {"label": "整数",              "pattern": "-?[0-9]+", "example": "8"}
+}

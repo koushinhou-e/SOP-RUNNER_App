@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="ba-token" content="__TOKEN__">
+<title>构建作业助手 v2 — 構築作業アシスタント</title>
+<link rel="stylesheet" href="/sop/sop.css">
+<link rel="stylesheet" href="/css/app.css">
+</head>
+<body>
+<header class="top" id="nav">
+  <h1>🛠 构建作业助手 v2</h1>
+  <span class="badge off" title="只监听 127.0.0.1，不访问外部网络">离线 · 仅本机</span>
+  <nav class="tabs">
+    <button data-tab="library" class="on">模板库</button>
+    <button data-tab="jobs">作业</button>
+    <button data-tab="sop">手顺执行</button>
+  </nav>
+  <span class="sp"></span>
+  <button id="btnQuit" title="停止本机服务">退出</button>
+</header>
+<section id="tab-library" class="tab"><main id="library"></main></section>
+<section id="tab-jobs" class="tab hidden"><main id="jobs"></main></section>
+<section id="tab-sop" class="tab hidden"><header class="top sub" id="sop-hdr"></header><main id="sop-app"></main></section>
+<div class="toast" id="toast"></div>
+<script src="/vendor/jszip.min.js"></script>
+<script src="/js/api.js"></script>
+<script src="/js/rules.js"></script>
+<script src="/sop/parser.js"></script>
+<script src="/sop/export.js"></script>
+<script src="/sop/sop-store.js"></script>
+<script src="/js/app.js"></script>
+<script src="/sop/sop-app.js"></script>
+</body>
+</html>

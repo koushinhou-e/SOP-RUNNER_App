@@ -1,0 +1,18 @@
+[
+ ["t3.large", "t3.large", "match"],
+ ["t3.large", "T3.LARGE ", "match"],
+ ["t3.large", "t3.medium", "mismatch"],
+ ["8", "8 GiB", "match"],
+ ["8", "8GB", "match"],
+ ["8 GiB", "8", "match"],
+ ["8", "7", "mismatch"],
+ ["8 GiB", "8 MiB", "mismatch"],
+ ["30", "30.0", "match"],
+ ["Amazon Linux 2023", "amazon  linux 2023", "match"],
+ ["Amazon Linux 2023", "Amazon Linux 2", "mismatch"],
+ ["sg-0123456789abcdef0,sg-0fedcba9876543210", "sg-0fedcba9876543210 sg-0123456789abcdef0", "match"],
+ ["192.0.2.11", "１９２.０.２.１１", "match"],
+ ["192.0.2.11", "", "missing"],
+ ["", "abc", "no_expected"],
+ ["1,024", "1024", "match"]
+]
