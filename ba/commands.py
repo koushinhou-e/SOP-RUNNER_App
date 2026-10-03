@@ -65,10 +65,6 @@ def lint(cmd):
     return w
 
 
-def placeholders(template):
-    return sorted(set(PH.findall(template or "")))
-
-
 def generate(templates, ctx):
     out = []
     for i, t in enumerate(templates):
@@ -81,11 +77,16 @@ def generate(templates, ctx):
     return out
 
 
+def _one_line(s):
+    """コメント行・echo 行に入れる文字列から改行を除く（改行があるとコメント外の実行行になってしまう）。"""
+    return re.sub(r"[\r\n]+", " ", str(s))
+
+
 def to_script(generated, target, meta):
     now = meta.get("now") or datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     head = [
         "構築作業アシスタント v2 で生成した確認コマンド",
-        "作業: %s / サーバ: %s / 生成日時: %s" % (meta.get("job_name", ""), meta.get("server", ""), now),
+        "作業: %s / サーバ: %s / 生成日時: %s" % (_one_line(meta.get("job_name", "")), _one_line(meta.get("server", "")), now),
         "このスクリプトは自動実行されません。内容を確認してから手動で実行してください。",
     ]
     lines = []
@@ -96,9 +97,9 @@ def to_script(generated, target, meta):
         lines += ["#!/usr/bin/env bash"] + ["# " + h for h in head]
         lines += ["set -u", "export AWS_PAGER=''", ""]
     for n, g in enumerate(generated, 1):
-        title = "[%d] %s" % (n, g["title"])
+        title = "[%d] %s" % (n, _one_line(g["title"]))
         if g["checks"]:
-            title += " (check: %s)" % g["checks"]
+            title += " (check: %s)" % _one_line(g["checks"])
         lines.append("# " + "-" * 60)
         for w in g["warnings"]:
             lines.append("# WARNING: " + w)
@@ -110,6 +111,7 @@ def to_script(generated, target, meta):
         else:
             lines.append("echo '### %s'" % title.replace("'", "'\"'\"'"))
             cmd = g["sh"]
-        lines.append(("# " + cmd) if g["missing"] else cmd)
+        # 未解決のコマンドは全行をコメントアウト（複数行テンプレートの 2 行目以降が実行されないように）
+        lines.append("\n".join("# " + ln for ln in cmd.splitlines() or [""]) if g["missing"] else cmd)
         lines.append("")
     return "\n".join(lines) + "\n"

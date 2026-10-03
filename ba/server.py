@@ -33,8 +33,18 @@ class _Server(ThreadingHTTPServer):
     daemon_threads = True
 
 
+LOOPBACK_HOSTS = ("127.0.0.1",)
+
+
+def _disposition(name):
+    ascii_name = re.sub(r"[^A-Za-z0-9._-]", "_", name)
+    return "attachment; filename=\"%s\"; filename*=UTF-8''%s" % (ascii_name, quote(name))
+
+
 class App:
     def __init__(self, data_dir, port=8765, host="127.0.0.1"):
+        if host not in LOOPBACK_HOSTS:   # LAN へ公開しない（呼び出し側の指定ミスも拒否）
+            raise ValueError("127.0.0.1 以外では待ち受けできません: %r" % host)
         self.service = Service(data_dir)
         self.token = secrets.token_urlsafe(24)
         self.host = host
@@ -47,7 +57,6 @@ class App:
                 continue
         if self.httpd is None:
             self.httpd = _Server((host, 0), self._handler())
-        self.httpd.daemon_threads = True
         self.port = self.httpd.server_address[1]
 
     @property
@@ -113,24 +122,29 @@ class Handler(BaseHTTPRequestHandler):
         ctype = ctype or mimetypes.guess_type(path)[0] or "application/octet-stream"
         if ctype.startswith("text/") or ctype in ("application/javascript", "application/json"):
             ctype += "; charset=utf-8"
-        headers = {}
-        if download_name:
-            ascii_name = re.sub(r"[^A-Za-z0-9._-]", "_", download_name)
-            headers["Content-Disposition"] = "attachment; filename=\"%s\"; filename*=UTF-8''%s" % (ascii_name, quote(download_name))
+        headers = {"Content-Disposition": _disposition(download_name)} if download_name else None
         self._send(200, data, ctype, headers)
 
-    def _body(self):
-        n = int(self.headers.get("Content-Length") or 0)
-        if n > MAX_UPLOAD:
-            raise HttpError(413, "ファイルが大きすぎます")
+    def _body(self, limit=MAX_UPLOAD, too_large="ファイルが大きすぎます"):
+        try:
+            n = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            raise HttpError(400, "Content-Length が不正です")
+        if n < 0:   # 負の値だと rfile.read(-1) が接続終了まで待ち続ける
+            raise HttpError(400, "Content-Length が不正です")
+        if n > limit:   # 読み込む前に拒否する（大きな本体をメモリに載せない）
+            raise HttpError(413, too_large)
         return self.rfile.read(n) if n else b""
 
     def _json(self):
         b = self._body()
         try:
-            return json.loads(b.decode("utf-8")) if b else {}
+            obj = json.loads(b.decode("utf-8")) if b else {}
         except ValueError:
             raise HttpError(400, "JSON の形式が不正です")
+        if not isinstance(obj, dict):
+            raise HttpError(400, "JSON はオブジェクトである必要があります")
+        return obj
 
     def _check_host(self):
         host = (self.headers.get("Host") or "").lower()
@@ -164,15 +178,17 @@ class Handler(BaseHTTPRequestHandler):
             self._check_host()
             u = urlparse(self.path)
             qs = parse_qs(u.query)
-            path = unquote(u.path)
-            if path.startswith("/api/"):
+            if u.path.startswith("/api/"):
                 self._check_token(qs)
-                return self._api(method, path[5:].strip("/").split("/"), qs)
+                # 区切りで分割してから各部分をデコードする（キーに含まれる %2F や % を二重にデコードしない）
+                return self._api(method, [unquote(p) for p in u.path[5:].strip("/").split("/")], qs)
             if method != "GET":
                 raise HttpError(405, "method not allowed")
-            return self._static(path)
+            return self._static(unquote(u.path))
         except HttpError as e:
-            self._send(e.code, {"error": str(e)})
+            # 本体を読まずに拒否した場合、残りのバイトが次のリクエストとして解釈されないよう接続を閉じる
+            self.close_connection = True
+            self._send(e.code, {"error": str(e)}, headers={"Connection": "close"})
         except KeyError as e:
             self._send(404, {"error": "not found: %s" % e})
         except ValueError as e:
@@ -252,6 +268,8 @@ class Handler(BaseHTTPRequestHandler):
                 job = {k: b.get(k) for k in ("name", "template_id", "param_sheet_id", "server", "command_set_id", "procedure_id")}
                 job.update({"inputs": {}, "compare": {}, "globals": b.get("globals") or {}})
                 return self._send(200, st.job_save(job))
+            if n == 1:
+                raise HttpError(405, "method not allowed")
             jid = parts[1]
             if n == 2 and method == "GET":
                 return self._send(200, S.job_view(jid))
@@ -279,16 +297,8 @@ class Handler(BaseHTTPRequestHandler):
                     data = b"\xef\xbb\xbf" + body.replace("\n", "\r\n").encode("utf-8")  # PowerShell 5 需要 BOM 才能正确识别 UTF-8
                 else:
                     data = body.encode("utf-8")
-                self.send_response(200)
                 name = "%s_%s_check.%s" % (job.get("name", "job"), job.get("server", ""), tgt)
-                ascii_name = re.sub(r"[^A-Za-z0-9._-]", "_", name)
-                self.send_header("Content-Type", "text/plain; charset=utf-8")
-                self.send_header("Content-Disposition", "attachment; filename=\"%s\"; filename*=UTF-8''%s" % (ascii_name, quote(name)))
-                self.send_header("Content-Length", str(len(data)))
-                self.send_header("Cache-Control", "no-store")
-                self.end_headers()
-                self.wfile.write(data)
-                return
+                return self._send(200, data, "text/plain; charset=utf-8", {"Content-Disposition": _disposition(name)})
             if n == 3 and parts[2] == "compare":
                 rows, summ = S.compare_rows(job)
                 return self._send(200, {"rows": rows, "summary": summ})
@@ -301,9 +311,7 @@ class Handler(BaseHTTPRequestHandler):
         # ----- SOP runner sessions -----
         if p0 == "sop":
             if n == 2 and parts[1] == "images" and method == "POST":
-                data = self._body()
-                if len(data) > MAX_IMAGE:
-                    raise HttpError(413, "画像が大きすぎます（上限 %d MB）" % (MAX_IMAGE // 1024 // 1024))
+                data = self._body(MAX_IMAGE, "画像が大きすぎます（上限 %d MB）" % (MAX_IMAGE // 1024 // 1024))
                 try:
                     return self._send(200, st.image_save(data))
                 except ValueError as e:
@@ -321,9 +329,9 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(200, {"items": st.sop_list()})
             if n == 3 and parts[1] == "sessions" and method == "PUT":
                 b = self._json()
-                st.sop_put(unquote(parts[2]), b)
+                st.sop_put(parts[2], b)
                 return self._send(200, {"ok": True})
             if n == 3 and parts[1] == "sessions" and method == "DELETE":
-                st.sop_delete(unquote(parts[2]))
+                st.sop_delete(parts[2])
                 return self._send(200, {"ok": True})
         raise HttpError(404, "unknown api")

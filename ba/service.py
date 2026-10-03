@@ -96,8 +96,7 @@ class Service:
         for it in (tpl or {}).get("items", []):
             v = (job.get("inputs") or {}).get(it["id"])
             if it.get("key") and v not in (None, "") and (it.get("source") or {}).get("kind") == "input":
-                ctx.setdefault(it["key"], v)
-                if not ctx.get(it["key"]):
+                if not ctx.get(it["key"]):          # パラメータ値が空のときだけ作業入力で補う
                     ctx[it["key"]] = v
         for k, v in (job.get("globals") or {}).items():
             if str(v).strip():

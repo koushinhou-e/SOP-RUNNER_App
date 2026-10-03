@@ -41,6 +41,16 @@ def to_number(v):
     return float(s)
 
 
+def _bound(x):
+    """最小/最大の設定値を数値に。空や数値でない値は None（無視。web/js/rules.js の parseFloat → NaN と同じ扱い）。"""
+    if x in (None, "") or isinstance(x, bool):
+        return None
+    try:
+        return float(x)
+    except (TypeError, ValueError):
+        return None
+
+
 def validate(item, value):
     """エラーのリスト [{code, message}] を返す。空リストなら OK。"""
     rules = item.get("rules") or {}
@@ -61,9 +71,9 @@ def validate(item, value):
             errs.append({"code": "number", "message": MESSAGES["number"]})
         else:
             mn, mx = rules.get("min"), rules.get("max")
-            if mn not in (None, "") and n < float(mn):
+            if _bound(mn) is not None and n < _bound(mn):
                 errs.append({"code": "min", "message": MESSAGES["min"].format(min=mn)})
-            if mx not in (None, "") and n > float(mx):
+            if _bound(mx) is not None and n > _bound(mx):
                 errs.append({"code": "max", "message": MESSAGES["max"].format(max=mx)})
     preset = rules.get("preset")
     if preset and preset in PRESETS:

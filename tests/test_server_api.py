@@ -201,6 +201,30 @@ class ApiFlowTest(unittest.TestCase):
         st, r = self.req("POST", "/api/samples")
         self.assertEqual((st, len(r["items"])), (200, 4))
 
+    def test_5_hardening(self):
+        from ba.server import App
+        with self.assertRaises(ValueError):          # 127.0.0.1 以外では起動しない
+            App(self.tmp, port=0, host="0.0.0.0")
+        # 負の Content-Length は即 400（以前は rfile.read(-1) で接続終了まで待ち続けた）
+        s = socket.create_connection(("127.0.0.1", self.port), timeout=10)
+        s.sendall(("POST /api/jobs HTTP/1.1\r\nHost: 127.0.0.1:%d\r\nX-Token: %s\r\nContent-Length: -1\r\n\r\n" % (self.port, self.app.token)).encode())
+        self.assertIn(b" 400 ", s.recv(4096).split(b"\r\n")[0] + b" ")
+        s.close()
+        # 画像の上限（20 MB）を超える Content-Length は本体を読む前に 413
+        s = socket.create_connection(("127.0.0.1", self.port), timeout=10)
+        s.sendall(("POST /api/sop/images HTTP/1.1\r\nHost: 127.0.0.1:%d\r\nX-Token: %s\r\nContent-Length: %d\r\n\r\n" % (self.port, self.app.token, 21 * 1024 * 1024)).encode())
+        self.assertIn(b" 413 ", s.recv(4096).split(b"\r\n")[0] + b" ")
+        s.close()
+        self.assertEqual(self.req("PUT", "/api/jobs", {})[0], 405)        # 以前は IndexError → 500
+        self.assertEqual(self.req("POST", "/api/jobs", [1, 2])[0], 400)   # JSON 配列は拒否
+        # 手順実行セッションのキー（ファイル名を含む）に % や %41 があっても二重デコードしない
+        key = "sopRunner:v1:手順_100%41.docx:abc"
+        self.assertEqual(self.req("PUT", "/api/sop/sessions/" + quote(key, safe=""), {"steps": []})[0], 200)
+        keys = [x["key"] for x in self.req("GET", "/api/sop/sessions")[1]["items"]]
+        self.assertIn(key, keys)
+        self.assertEqual(self.req("DELETE", "/api/sop/sessions/" + quote(key, safe=""))[0], 200)
+        self.assertNotIn(key, [x["key"] for x in self.req("GET", "/api/sop/sessions")[1]["items"]])
+
     def test_9_no_outbound_network(self):
         self.assertEqual(ATTEMPTS, [], "outbound network attempts: %r" % ATTEMPTS)
 

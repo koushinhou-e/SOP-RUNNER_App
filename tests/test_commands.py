@@ -56,6 +56,15 @@ class CommandsTest(unittest.TestCase):
         sh = commands.to_script(gen, "sh", {"now": "x"})
         self.assertIn("# aws ec2 describe-instances --instance-ids {{nope}}", sh)
 
+    def test_newlines_cannot_escape_comments(self):
+        # 作業名・サーバ名（Excel のセル内改行など）や複数行テンプレートが、コメント外の実行行にならないこと
+        gen = commands.generate([{"title": "a\nrm -rf ~", "template": "echo {{nope}}\nrm -rf /tmp/x"}], {})
+        for target in ("sh", "ps1"):
+            text = commands.to_script(gen, target, {"job_name": "job\nrm -rf ~", "server": "web01\r\n(本番)", "now": "x"})
+            for ln in text.splitlines():
+                self.assertFalse(ln.startswith(("rm ", "(本番)")), (target, ln))
+            self.assertIn("# rm -rf /tmp/x", text)
+
     def test_quoting_prevents_injection(self):
         evil = "x; rm -rf ~ $(whoami) 'q'"
         sh, _, quoted = commands.render("echo {{v}}", {"v": evil}, "sh")
