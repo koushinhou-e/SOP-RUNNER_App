@@ -60,7 +60,7 @@ function startServer() {
     await page.waitForSelector('.lib-procedure tr[data-id]');
     await page.setInputFiles('.up[data-type=excel_template] input[type=file]', S('構築結果報告書_template_sample.xlsx'));
     await page.waitForSelector('#itemTable');
-    ok((await page.textContent('#edCount')).includes('全 39 項目'), '交付物模板检测：39 项');
+    ok((await page.textContent('#edCount')).includes('全 50 項目'), '交付物模板检测：50 项');
 
     console.log('2) 模板编辑：映射 / 调整检测项');
     await page.selectOption('#edParam', { label: 'EC2パラメータシート_sample' });
@@ -69,6 +69,7 @@ function startServer() {
     await page.waitForFunction(() => /パラメータ 11/.test(document.querySelector('#edCount').textContent));
     ok(true, '按标签自动映射：11 项映射到参数');
     ok(await page.locator('#gridPrev td.hit.param').count() === 11, '网格预览：11 个蓝色(参数)单元格');
+    ok(await page.locator('#gridPrev td.hit.result').count() === 11 && await page.locator('#gridPrev td.hit.judge').count() === 11, '自动映射：確認結果列 11 → 作業結果、判定列 11 → 判定（OK/NG）');
     await page.click('#gridPrev td[data-addr="C7"]');           // 点击空单元格 → 添加检测项
     let tm = await api('/api/library?type=excel_template');
     await page.waitForSelector('#itemTable tr.sel');
@@ -76,16 +77,16 @@ function startServer() {
     await page.fill('#itemTable tr.sel input[data-f=pattern]', 'MNG-[0-9]{4}');
     const row22 = page.locator('#itemTable tr', { has: page.locator('input[data-f=cell][value="C22"]') });
     await row22.locator('input[data-f=label]').fill('特記事項（任意）');
-    const rowE9 = page.locator('#itemTable tr', { has: page.locator('input[data-f=cell][value="E9"]') });
-    await rowE9.locator('button[data-f=del]').click();
-    await page.waitForFunction(() => /全 39 項目/.test(document.querySelector('#edCount').textContent));   // +1 (C7) -1 (E9)
+    const rowF9 = page.locator('#itemTable tr', { has: page.locator('input[data-f=cell][value="F9"]') });
+    await rowF9.locator('button[data-f=del]').click();
+    await page.waitForFunction(() => /全 50 項目/.test(document.querySelector('#edCount').textContent));   // +1 (C7) -1 (F9)
     await page.evaluate(() => document.querySelector('#gridPrev').scrollTo(0, 0));
     await shot(); await page.screenshot({ path: path.join(SHOT, '02-template-mapping.png') });
     await page.click('#edSave');
     await page.waitForFunction(() => !/未保存/.test(document.querySelector('#edStat').textContent));
     tm = (await api('/api/library?type=excel_template')).items[0];
     const byCell = Object.fromEntries(tm.items.map(i => [i.cell, i]));
-    ok(byCell.C7 && byCell.C7.label === '管理番号' && byCell.C7.rules.pattern === 'MNG-[0-9]{4}' && !byCell.E9 && byCell.C22.label === '特記事项（任意）'.replace('项', '項') && tm.param_ref, '保存：新增 C7(管理番号+正则)、删除 E9、改名 C22、参照参数表');
+    ok(byCell.C7 && byCell.C7.label === '管理番号' && byCell.C7.rules.pattern === 'MNG-[0-9]{4}' && !byCell.F9 && byCell.C22.label === '特記事项（任意）'.replace('项', '項') && tm.param_ref, '保存：新增 C7(管理番号+正则)、删除 F9、改名 C22、参照参数表');
 
     console.log('3) 命令模板集编辑：lint 预览');
     await page.click('[data-act=backLib]');
@@ -132,12 +133,12 @@ function startServer() {
     await page.fill(inId('C7'), 'ABC-1');
     ok(await page.locator(inId('C4') + '.invalid').count() === 1, '日期格式错误 → 红色');
     ok(await page.locator(inId('C7') + '.invalid').count() === 1, '自定义正则 MNG-[0-9]{4} 不符 → 红色');
-    ok(await page.locator(inId('D9') + '.invalid').count() === 1, '必填下拉未选 → 红色');
+    ok(await page.locator(inId('C21') + '.invalid').count() === 1, '必填下拉未选 → 红色');
+    ok(await page.locator('#inTable [data-in="構築結果!D9"], #inTable [data-in="構築結果!E9"]').count() === 0, '確認結果・判定列不是作业输入（由作业结果自动填写）');
     ok(await page.locator('#roTable .invalid').count() === 0, '来自参数表的 11 个值全部通过规则检查');
     await shot(); await page.screenshot({ path: path.join(SHOT, '03-inputs-validation.png') });
     await page.fill(inId('C4'), '2026/10/03');
     await page.fill(inId('C7'), 'MNG-0042');
-    for (let r = 9; r <= 19; r++) await page.selectOption(inId('D' + r), 'OK');
     await page.selectOption(inId('C21'), '合格');
     ok(await page.locator('#inTable .invalid').count() === 0 && /全 \d+ 項目 チェック OK/.test(await page.textContent('#inStat')), '修正后全部通过');
     await page.waitForTimeout(500);
@@ -180,7 +181,8 @@ function startServer() {
     console.log('7) 交付物输出');
     await page.click('[data-jt=deliver]');
     await page.waitForSelector('#dvTable');
-    ok((await page.textContent('#jobBody')).includes('28 セルに書き込みます'), '将写入 28 个单元格（参数 11 + 输入 17；可选的特记事项未填）');
+    ok((await page.textContent('#jobBody')).includes('39 セルに書き込みます'), '将写入 39 个单元格（参数 11 + 输入 6 + 確認結果 11 + 判定 11；可选的特记事项未填）');
+    ok((await page.textContent('#dvTable')).includes('確認結果 instance_type') && (await page.textContent('#dvTable')).includes('t3.medium'), '交付物：確認結果列 = ③ 的实测值');
     await shot(); await page.screenshot({ path: path.join(SHOT, '06-deliverable.png') });
     await page.click('#dvExport');
     await page.waitForSelector('#modal .modal.warn');
@@ -317,6 +319,12 @@ function startServer() {
       await page.click('#sop-app #btnConfirm');
     }
     await page.waitForSelector('#btnExportDocx');
+    // 全部步骤确认完成 → 询问是否制作確認結果報告書（只问一次；完成页上也有按钮）
+    await page.waitForSelector('#modal .modal');
+    ok((await page.textContent('#modal')).includes('確認結果報告書を作成しますか') && !!(await page.$('#sopReport #sopReportBtn')), '完成后：弹出“是否制作確認結果報告書”确认框，完成页有制作按钮');
+    await page.waitForTimeout(300); await page.screenshot({ path: path.join(SHOTF, '05-report-prompt.png') });
+    await page.click('#modal button[data-mi="1"]');   // 今は作成しない
+    ok(!(await page.$('#modal')) && await page.evaluate(() => !!SopApp.state().reportAskedAt), '“今は作成しない” → 关闭（记录已询问，不再弹出）');
     const docx = await dl('#btnExportDocx', 'record.docx');
     ok(/_実施記録_\d{8}-\d{4}\.docx$/.test(docx.name), 'Word 实施记录导出：' + docx.name);
     const zipInfo = await page.evaluate(async (b64) => {
@@ -375,8 +383,8 @@ function startServer() {
     console.log('8b) 交付物插入证迹图片（纯 Python，无 Pillow）');
     const tplId = (await api('/api/library?type=excel_template')).items[0].id;
     const tpl = await api('/api/library/' + tplId);
-    // E9 已在步骤 2 中删除 → 重新添加为“证迹图片”映射（键 img_ec2）
-    tpl.items.push(Object.assign({}, tpl.items[0], { id: '構築結果!E9', sheet: '構築結果', cell: 'E9', label: 'EC2 画面（証跡）', rules: {}, options: [], source: { kind: 'evidence', key: 'img_ec2' } }));
+    // F9 已在步骤 2 中删除 → 重新添加为“证迹图片”映射（键 img_ec2）
+    tpl.items.push(Object.assign({}, tpl.items[0], { id: '構築結果!F9', sheet: '構築結果', cell: 'F9', label: 'EC2 画面（証跡）', rules: {}, options: [], source: { kind: 'evidence', key: 'img_ec2' } }));
     await api('/api/library/' + tplId, { method: 'PUT', body: JSON.stringify({ items: tpl.items }) });
     await page.click('#nav [data-tab=jobs]'); await page.click('[data-job]'); await page.click('[data-jt=deliver]');
     await page.waitForSelector('#dvTable');
@@ -391,6 +399,20 @@ function startServer() {
     await page.screenshot({ path: path.join(SHOTF, '03-export-warning.png') });
     const dve = await dl('#modal button[data-mi="0"]', 'deliverable_evidence.xlsx');
     ok(/web01_\d{8}-\d{6}\.xlsx$/.test(dve.name), '含证迹图片的交付物导出：' + dve.name);
+
+    console.log('8b2) 从手顺执行的完成页制作確認結果報告書（设定值 + 确认结果）');
+    await page.click('#nav [data-tab=sop]');
+    await page.waitForSelector('#sopReport #sopReportBtn');
+    await page.click('#sopReportBtn');
+    await page.waitForSelector('#modal .rp-rows');
+    const jobId = (await api('/api/jobs')).items[0].id;
+    ok(await page.$eval('#rpJob', e => e.value) === jobId, '报告书对话框：默认选中已绑定该执行记录的作业');
+    const rpTxt = await page.textContent('#modal .rp-rows');
+    ok(rpTxt.includes('t3.large') && rpTxt.includes('t3.medium') && rpTxt.includes('NG') && rpTxt.includes('web01.example.local'), '报告书对话框：设定值（参数表）/ 确认结果（作业输入值）/ 判定');
+    ok(!!(await page.$('#rpEv:checked')), '报告书对话框：默认插入证迹图片');
+    await page.waitForTimeout(300); await page.screenshot({ path: path.join(SHOTF, '06-report-dialog.png') });
+    const rpx = await dl('#rpOut', 'report.xlsx');
+    ok(/web01_\d{8}-\d{6}\.xlsx$/.test(rpx.name) && !(await page.$('#modal')), '確認結果報告書导出：' + rpx.name);
 
     console.log('8c) 再次从模板库打开同一手顺书 → 证迹要求自动重新应用');
     await page.click('#nav [data-tab=sop]'); await page.click('#sop-hdr button[data-act=home]');

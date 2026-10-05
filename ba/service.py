@@ -3,6 +3,8 @@ import datetime
 import json
 import os
 
+from openpyxl.utils.cell import coordinate_from_string
+
 from . import commands as cmdmod
 from . import compare as cmpmod
 from . import fill as fillmod
@@ -106,26 +108,67 @@ class Service:
                 ctx[k] = v
         return ctx
 
-    def resolve(self, job):
+    def _value_index(self, job):
+        """④ 最終値チェックの行をキーで引く辞書（作業結果・判定・作業入力の補完に使う）。"""
+        return {r["key"]: r for r in self.all_values(job)["rows"] if r.get("key")}
+
+    def resolve(self, job, by=None):
+        """テンプレートの各セルに書き込む値。
+
+        param  = パラメータシートの値（設定値）
+        result = 作業中に入力した値（④ の最終値：手順実行・③ 実測値・① のうち入力日時が最も新しい値）
+        judge  = result が設定値と一致すれば OK、異なれば NG（③ と同じ judge()。未入力なら空）
+        input  = ① の作業入力。① が空でキーがあれば、同じキーの手順実行・③ の値で補う（fallback）
+        """
         tpl = self._template(job)
         params = {p["key"]: p for p in self._params(job)}
         server = job.get("server", "")
+        inputs = job.get("inputs") or {}
+        items = (tpl or {}).get("items", [])
+        if by is None:
+            by = {}
+            if any((it.get("source") or {}).get("kind") in ("result", "judge") or ((it.get("source") or {}).get("kind", "input") == "input" and it.get("key"))
+                   for it in items):
+                by = self._value_index(job)
         out = []
-        for it in (tpl or {}).get("items", []):
+        for it in items:
             src = it.get("source") or {"kind": "input"}
             kind = src.get("kind", "input")
+            extra = {}
             if kind == "param":
                 p = params.get(src.get("key"))
                 val = p["values"].get(server, "") if p else ""
             elif kind == "fixed":
                 val = src.get("value", "")
             elif kind == "input":
-                val = (job.get("inputs") or {}).get(it["id"], "")
+                val = inputs.get(it["id"], "")
+                extra["input"] = val
+                r = by.get(it.get("key")) if it.get("key") else None
+                if not str(val or "").strip() and r and str(r["final_raw"]).strip():
+                    val = r["final_raw"]
+                    if it.get("type") == "date":
+                        d = valmod.as_date(val)
+                        val = "%04d/%02d/%02d" % d[:3] if d else val
+                    extra.update({"fallback": True, "fallback_source": r["final_source"]})
+            elif kind == "result":
+                r = by.get(src.get("key"))
+                val = r["final_raw"] if r else ""
+                extra["source_label"] = r["final_source"] if r else ""
+            elif kind == "judge":
+                r = by.get(src.get("key"))
+                good, bad = xlsx_detect.judge_marks(it.get("options"))
+                status = r["status"] if r and r["has_expected"] and str(r["final_raw"]).strip() else ""
+                val = good if status == "match" else bad if status == "mismatch" else ""
             else:
                 val = ""
-            errs = rules.validate(it, val) if kind not in ("none", "evidence") else []
-            out.append({"id": it["id"], "sheet": it["sheet"], "cell": it["cell"], "label": it["label"], "kind": kind,
-                        "key": src.get("key"), "value": val, "errors": errs})
+            if kind in ("none", "evidence", "judge") or (kind == "result" and not str(val).strip()):
+                errs = []          # 判定・未入力の作業結果は出力時の値なのでチェックしない
+            else:
+                errs = rules.validate(it, val)
+            row = {"id": it["id"], "sheet": it["sheet"], "cell": it["cell"], "label": it["label"], "kind": kind,
+                   "key": src.get("key"), "value": val, "errors": errs}
+            row.update(extra)
+            out.append(row)
         return out
 
     JOB_FIELDS = ("name", "template_id", "param_sheet_id", "server", "command_set_id", "procedure_id", "globals", "sop_key")
@@ -299,6 +342,60 @@ class Service:
                     except KeyError:
                         continue
         return out
+
+    def report_preview(self, job, sop_key=None):
+        """確認結果報告書（成果物テンプレート）の出力前確認。
+
+        header = 作業入力（①）の記入項目（案件名・作業日・確認者・総合判定など）。① が空なら手順実行の値で補う候補を表示
+        rows   = テンプレートの行ごとに 設定値（パラメータシート）／確認結果（作業中の入力値）／判定
+        sop_key を渡すと、作業に紐付けずにその手順実行の記録で計算する（手順実行の完了画面から呼ぶ）。
+        """
+        tpl = self._template(job)
+        if not tpl:
+            raise ValueError("この作業には成果物テンプレートが選択されていません")
+        bound = job.get("sop_key")
+        if sop_key:
+            job = dict(job, sop_key=sop_key)
+        v = self.all_values(job)
+        by = {r["key"]: r for r in v["rows"] if r.get("key")}
+        items = {it["id"]: it for it in tpl.get("items", [])}
+        header, groups = [], {}
+        for r in self.resolve(job, by):
+            it = items.get(r["id"]) or {}
+            if r["kind"] == "input":
+                header.append({"id": r["id"], "cell": r["cell"], "label": r["label"], "type": it.get("type", "text"), "options": it.get("options") or [],
+                               "required": bool((it.get("rules") or {}).get("required")), "value": r.get("input") or "",
+                               "fallback": r["value"] if r.get("fallback") else "", "fallback_source": r.get("fallback_source", "")})
+                continue
+            if r["kind"] not in ("param", "result", "judge"):
+                continue
+            _, row_no = coordinate_from_string(r["cell"])
+            g = groups.get((r["sheet"], row_no))
+            if g is None:
+                g = groups[(r["sheet"], row_no)] = {"label": it.get("row_label") or r["label"], "key": r["key"], "setting": None, "result": None,
+                                                    "judge": None, "result_source": "", "cells": []}
+            field = {"param": "setting", "result": "result", "judge": "judge"}[r["kind"]]
+            g[field] = r["value"]
+            g["key"] = g["key"] or r["key"]
+            g["cells"].append(r["cell"])
+            if r["kind"] == "result":
+                g["result_source"] = r.get("source_label", "")
+        rows, summ = [], {"rows": 0, "match": 0, "mismatch": 0, "missing": 0}
+        for g in groups.values():
+            if g["result"] is None and g["judge"] is None:
+                continue            # 確認結果・判定の欄が無い行（設定値だけの行）は報告書の対象外
+            vr = by.get(g["key"]) or {}
+            entered = bool(str(vr.get("final_raw") or "").strip())
+            g["status"] = "missing" if not entered else (vr["status"] if vr.get("has_expected") else "no_expected")
+            g["expected"] = vr.get("expected", "")
+            summ["rows"] += 1
+            if g["status"] in summ:
+                summ[g["status"]] += 1
+            rows.append(g)
+        summ["header_missing"] = sum(1 for h in header if h["required"] and not str(h["value"]).strip() and not str(h["fallback"]).strip())
+        return {"job": {"id": job.get("id"), "name": job.get("name", ""), "server": job.get("server", ""), "sop_key": bound},
+                "template": {"id": tpl["id"], "name": tpl.get("name", "")}, "sop": v["sop"], "header": header, "rows": rows, "summary": summ,
+                "evidence": len(self.evidence_images(job.get("sop_key"))) if job.get("sop_key") else 0}
 
     def export_deliverable(self, job, sop_key=None):
         tpl = self._template(job)

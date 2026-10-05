@@ -11,6 +11,7 @@ app.js への構造パッチ（各パッチは一致を検証し、v1 が変わ�
   6. SopApp.importFile / save / refreshGate を公開（テンプレートライブラリ・証跡画像モジュールから呼び出す）
   8. 入力項目のパラメータキー列（data-inped="key"）と値の入力日時 results[].valuesAt
   7. 証跡画像モジュール（web/sop/sop-evidence.js）用のフック：missing / onImport / afterParse / editHeader / editExtra / runExtra、結合時の引き継ぎ
+  9. 完了ページ描画後に SopHooks.afterDone を呼ぶ（確認結果報告書の作成ボタンと確認ダイアログ）
 export.js には証跡画像の行・名前空間・パーツ拡張のフックを追加する。
 さらに tools/v1_ja.py の置換表で UI 文言を日本語化する（parser.js / export.js / app.js / app.css）。
 v1 本体（/workspace/sop-runner）は変更しない。
@@ -61,6 +62,9 @@ PATCHES = [
     ("r.values[t.getAttribute('data-inp')] = t.type === 'checkbox' ? t.checked : t.value;",
      "r.values[t.getAttribute('data-inp')] = t.type === 'checkbox' ? t.checked : t.value; stampValue(r, t.getAttribute('data-inp'));"),
     ("  function countDone(s) {", "  function stampValue(r, id) { (r.valuesAt = r.valuesAt || {})[id] = nowIso(); }   // 値の入力日時（最終値チェック用）\n  function countDone(s) {"),
+    # ---- 完了ページ：確認結果報告書の作成ボタン・確認ダイアログ（web/js/app.js の SopHooks.afterDone）----
+    ("    }).join('') + '</table></div>';\n    app.innerHTML = h;\n  }",
+     "    }).join('') + '</table></div>';\n    app.innerHTML = h;\n    if (window.SopHooks && SopHooks.afterDone) SopHooks.afterDone(app, S);\n  }"),
 ]
 
 # export.js へのパッチ（証跡画像の埋め込み用。フックが無ければ v1 と同じ出力）

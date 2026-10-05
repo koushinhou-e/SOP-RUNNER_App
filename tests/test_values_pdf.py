@@ -11,6 +11,7 @@ import _util  # noqa: F401  （vendor/ を sys.path に追加）
 from ba import report
 from ba import values as valmod
 from ba.service import Service
+from openpyxl import load_workbook
 
 CHROME = shutil.which("google-chrome") or shutil.which("chromium") or shutil.which("chromium-browser") or shutil.which("msedge") or shutil.which("microsoft-edge")
 
@@ -47,7 +48,12 @@ class ServiceBase(unittest.TestCase):
 
 class AllValuesTest(ServiceBase):
     def test_merge_judge_and_sources(self):
-        self.S.update_job(self.job["id"], {"inputs": {self.items["C4"]: "2026/10/03", self.items["C5"]: "山田 太郎", self.items["D11"]: "OK"}})
+        tpl = self.S.store.lib_get(self.xt["id"])          # キーの無い作業入力（列見出し付きの項目）も集約できること
+        for it in tpl["items"]:
+            if it["cell"] == "F11":
+                it["source"] = {"kind": "input"}
+        self.S.store.lib_update(self.xt["id"], {"items": tpl["items"]})
+        self.S.update_job(self.job["id"], {"inputs": {self.items["C4"]: "2026/10/03", self.items["C5"]: "山田 太郎", self.items["F11"]: "要確認"}})
         self.S.update_job(self.job["id"], {"compare": {"instance_type": {"actual": "t3.medium", "judgement": "NG"}, "memory_gib": {"actual": "8 GiB"}}})
         v, by = self.values()
         it = by["instance_type"]
@@ -57,7 +63,7 @@ class AllValuesTest(ServiceBase):
         self.assertEqual(by["memory_gib"]["status"], "match")            # 8 と 8 GiB は ③ と同じ judge() で一致
         self.assertEqual(by["work_date"]["final"], "2026/10/03")
         self.assertEqual(by["work_date"]["final_source"], "① 入力チェック（C4）")
-        self.assertEqual(by["item:" + self.items["D11"]]["label"], "インスタンスタイプ / 確認結果")
+        self.assertEqual(by["item:" + self.items["F11"]]["label"], "インスタンスタイプ / 備考")
         self.assertEqual(by["hostname"]["status"], "missing")
         self.assertEqual((v["summary"]["mismatch"], v["summary"]["conflict"], v["summary"]["problems"]), (1, 0, 1))
         self.assertIsNone(v["sop"])
@@ -169,6 +175,61 @@ class KeyValuesTest(ServiceBase):
         self.assertIn("主要値一覧", out["html"])
         with open(os.path.join(out["dir"], out["html"]), encoding="utf-8") as f:
             self.assertIn("t3.medium", f.read())
+
+
+class ReportTest(ServiceBase):
+    """確認結果報告書：設定値（パラメータシート）＋ 確認結果（作業中に入力した値）＋ 判定 をテンプレートに記入する。"""
+
+    def setUp(self):
+        super().setUp()
+        self.sess = session({"i1": "2026-10-05 09:00", "i2": "佐藤 花子", "i3": "t3.medium"},
+                            at={"i3": "2026-10-05T00:00:00.000Z"}, keys={"i1": "work_date", "i2": "worker", "i3": "instance_type"})
+        self.S.store.sop_put(self.sess["key"], self.sess)
+        self.S.update_job(self.job["id"], {"compare": {"private_ip": {"actual": "192.0.2.11"}, "vcpu": {"actual": "4"}}})
+
+    def job_(self):
+        return self.S.store.job_get(self.job["id"])
+
+    def test_preview_with_session_override_does_not_bind(self):
+        p = self.S.report_preview(self.job_(), self.sess["key"])
+        self.assertIsNone(self.job_().get("sop_key"))                    # 出力前の確認では紐付けない
+        self.assertIsNone(p["job"]["sop_key"])
+        rows = {r["key"]: r for r in p["rows"]}
+        self.assertEqual(len(p["rows"]), 11)
+        it = rows["instance_type"]                                         # 手順実行の入力値 → 確認結果、設定値と異なる → NG
+        self.assertEqual((it["setting"], it["result"], it["judge"], it["status"], it["cells"]), ("t3.large", "t3.medium", "NG", "mismatch", ["C11", "D11", "E11"]))
+        self.assertEqual(it["result_source"], "手順 1：記録")
+        ip = rows["private_ip"]                                            # ③ の実測値 → 確認結果、一致 → OK
+        self.assertEqual((ip["result"], ip["judge"], ip["status"]), ("192.0.2.11", "OK", "match"))
+        self.assertEqual((rows["vcpu"]["judge"], rows["hostname"]["result"], rows["hostname"]["judge"], rows["hostname"]["status"]), ("NG", "", "", "missing"))
+        self.assertEqual((p["summary"]["match"], p["summary"]["mismatch"], p["summary"]["missing"]), (1, 2, 8))
+        head = {h["cell"]: h for h in p["header"]}                         # ① が空なら手順実行の値で補う（作業日は日付だけ）
+        self.assertEqual((head["C4"]["value"], head["C4"]["fallback"]), ("", "2026/10/05"))
+        self.assertEqual(head["C5"]["fallback"], "佐藤 花子")
+        self.assertEqual((head["C3"]["fallback"], head["C6"]["fallback"]), ("", ""))
+        self.assertEqual(p["summary"]["header_missing"], 3)              # 案件名・確認者・総合判定
+        self.assertEqual(self.S.report_preview(self.job_())["rows"][0]["result"], "")   # 未紐付けなら手順実行の値は使わない
+
+    def test_resolve_and_export(self):
+        self.S.update_job(self.job["id"], {"sop_key": self.sess["key"], "inputs": {self.items["C5"]: "山田 太郎", self.items["C21"]: "不合格"}})
+        res = {r["cell"]: r for r in self.S.resolve(self.job_())}
+        self.assertEqual((res["C5"]["value"], res["C5"].get("fallback")), ("山田 太郎", None))   # ① に値があれば ① が優先
+        self.assertEqual((res["C4"]["value"], res["C4"]["fallback"], res["C4"]["errors"]), ("2026/10/05", True, []))
+        self.assertEqual((res["D11"]["kind"], res["D11"]["value"], res["E11"]["value"]), ("result", "t3.medium", "NG"))
+        self.assertEqual((res["D9"]["value"], res["D9"]["errors"], res["E9"]["value"]), ("", [], ""))   # 未入力の確認結果はチェックしない
+        out, written = self.S.export_deliverable(self.job_())
+        ws = load_workbook(out)["構築結果"]
+        self.assertEqual([ws.cell(row=11, column=c).value for c in range(2, 7)], ["インスタンスタイプ", "t3.large", "t3.medium", "NG", None])
+        self.assertEqual([ws.cell(row=12, column=c).value for c in range(2, 6)], ["vCPU", 2, 4, "NG"])     # 数値は数値で記入
+        self.assertEqual([ws.cell(row=18, column=c).value for c in range(3, 6)], ["192.0.2.11", "192.0.2.11", "OK"])
+        self.assertEqual((ws["C4"].value.strftime("%Y-%m-%d"), ws["C5"].value, ws["C21"].value), ("2026-10-05", "山田 太郎", "不合格"))
+        self.assertIsNone(ws["D9"].value)
+        self.assertNotIn("構築結果!D9", written)
+
+    def test_requires_template(self):
+        job = self.S.store.job_save({"name": "テンプレートなし", "server": "web01", "inputs": {}, "compare": {}})
+        with self.assertRaises(ValueError):
+            self.S.report_preview(job)
 
 
 class HelpersTest(unittest.TestCase):

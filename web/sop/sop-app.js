@@ -258,6 +258,7 @@
       return '<tr' + (r.anomaly ? ' style="background:#fef2f2"' : '') + '><td>' + r.no + '</td><td lang="ja">' + esc(r.title) + '</td><td lang="ja">' + r.values.map(function (v) { return esc(v.label) + '：<b>' + esc(v.value) + '</b>' + esc(v.unit ? ' ' + v.unit : ''); }).join('<br>') + '</td><td>' + esc(r.confirmedAt) + '</td><td lang="ja">' + esc(r.note) + '</td><td>' + (r.anomaly ? '<span class="anom">⚠</span>' : '') + '</td></tr>';
     }).join('') + '</table></div>';
     app.innerHTML = h;
+    if (window.SopHooks && SopHooks.afterDone) SopHooks.afterDone(app, S);
   }
 
   function render() {

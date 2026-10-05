@@ -105,9 +105,9 @@ class ApiFlowTest(unittest.TestCase):
         st, ps = self.upload("param_sheet", _util.PARAMS)
         self.assertEqual(st, 200, ps)
         st, xt = self.upload("excel_template", _util.TEMPLATE)
-        self.assertEqual((st, len(xt["items"])), (200, 39))
+        self.assertEqual((st, len(xt["items"])), (200, 50))
         st, r = self.req("POST", "/api/library/%s/automap" % xt["id"], {"param_sheet_id": ps["id"]})
-        self.assertEqual(r["mapped"], 11)
+        self.assertEqual(r["mapped"], 33)          # 設定値 11 + 確認結果 11 + 判定 11
         st, pr = self.upload("procedure", _util.DOCX)
         self.assertEqual(st, 200)
         with open(_util.CMDS, encoding="utf-8") as f:
@@ -131,7 +131,7 @@ class ApiFlowTest(unittest.TestCase):
         self.assertEqual(res["C11"]["value"], "t3.large")
         self.assertEqual(res["C5"]["errors"][0]["code"], "required")
         items = {i["cell"]: i["id"] for i in xt["items"]}
-        st, v = self.req("PUT", "/api/jobs/" + jid, {"inputs": {items["C3"]: "サンプル案件", items["C4"]: "2026/10/03", items["C5"]: "山田 太郎", items["C6"]: "佐藤 花子", items["D11"]: "OK", items["C21"]: "Maybe"}})
+        st, v = self.req("PUT", "/api/jobs/" + jid, {"inputs": {items["C3"]: "サンプル案件", items["C4"]: "2026/10/03", items["C5"]: "山田 太郎", items["C6"]: "佐藤 花子", items["C21"]: "Maybe"}})
         res = {r_["cell"]: r_ for r_ in v["resolved"]}
         self.assertEqual(res["C5"]["errors"], [])
         self.assertEqual(res["C21"]["errors"][0]["code"], "options")
@@ -175,7 +175,17 @@ class ApiFlowTest(unittest.TestCase):
         with open(p, "wb") as f:
             f.write(data)
         ws = load_workbook(p)["構築結果"]
-        self.assertEqual((ws["C9"].value, ws["C10"].value, ws["C5"].value, ws["D11"].value), ("web01.example.local", "i-0123456789abcdef0", "山田 太郎", "OK"))
+        self.assertEqual((ws["C9"].value, ws["C10"].value, ws["C5"].value), ("web01.example.local", "i-0123456789abcdef0", "山田 太郎"))
+        # 確認結果 = ③ の実測値、判定 = 設定値との一致（8 GiB と 8 は一致）
+        self.assertEqual((ws["D11"].value, ws["E11"].value, ws["D13"].value, ws["E13"].value), ("t3.medium", "NG", "8 GiB", "OK"))
+        self.assertEqual((ws["D9"].value, ws["E9"].value), (None, None))     # 未確認の項目は空欄
+        # 確認結果報告書の出力前確認（行ごとの 設定値 / 確認結果 / 判定）
+        st, rp = self.req("GET", "/api/jobs/%s/report" % jid)
+        self.assertEqual(st, 200)
+        rows = {x["key"]: x for x in rp["rows"]}
+        self.assertEqual((rows["instance_type"]["setting"], rows["instance_type"]["result"], rows["instance_type"]["judge"]), ("t3.large", "t3.medium", "NG"))
+        self.assertEqual((rp["summary"]["rows"], rp["summary"]["match"], rp["summary"]["mismatch"], rp["summary"]["missing"]), (11, 1, 1, 9))
+        self.assertEqual([h["cell"] for h in rp["header"]], ["C3", "C4", "C5", "C6", "C21", "C22"])
         # SOP sessions server-side
         st, _ = self.req("PUT", "/api/sop/sessions/" + quote("sopRunner:v1:a.docx:abc", safe=""), {"steps": [], "docName": "a.docx"})
         st, ss = self.req("GET", "/api/sop/sessions")
@@ -205,7 +215,7 @@ class ApiFlowTest(unittest.TestCase):
         keys = {k["key"] for s in pr["evidence"]["steps"] for k in s["inputKeys"]}
         params = {p["key"] for m in r["items"] if m["type"] == "param_sheet" for p in m["parsed"]["params"]}
         self.assertTrue({"instance_id", "instance_type", "private_ip", "hostname"} <= keys)
-        self.assertTrue(keys - {"work_date", "worker"} <= params)
+        self.assertTrue(keys - {"work_date", "worker", "reviewer"} <= params)
         self.assertEqual([i["key"] for s in pr["evidence"]["steps"] for i in s["items"]], ["img_ec2"])
 
     def test_5_hardening(self):

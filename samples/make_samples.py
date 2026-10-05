@@ -57,17 +57,18 @@ def param_sheet(path):
 
 
 def template(path):
+    """確認結果報告書：設定値（パラメータシート）と 確認結果（作業中に入力した値）を並べ、判定（OK/NG）を付ける様式。"""
     wb = Workbook()
     ws = wb.active
     ws.title = "構築結果"
     lists = wb.create_sheet("リスト")
     lists["A1"], lists["A2"] = "合格", "不合格"
     lists.sheet_state = "hidden"
-    ws.merge_cells("B1:E1")
+    ws.merge_cells("B1:F1")
     ws["B1"] = "EC2サーバ構築 確認結果報告書"
     ws["B1"].font = Font(size=16, bold=True)
     ws["B1"].alignment = Alignment(horizontal="center")
-    for col, w in zip("ABCDE", [3, 22, 30, 12, 28]):
+    for col, w in zip("ABCDEF", [3, 22, 28, 28, 10, 24]):
         ws.column_dimensions[col].width = w
     meta = [(3, "案件名", "{{project_name}}"), (4, "作業日", None), (5, "作業者", None), (6, "確認者", "＿＿＿＿＿＿")]
     for r, lab, v in meta:
@@ -77,7 +78,7 @@ def template(path):
         if v is None:
             c.fill = YELLOW
     ws["C4"].number_format = "yyyy/mm/dd"
-    for i, h in enumerate(["項目", "設定値", "確認結果", "備考"], 2):
+    for i, h in enumerate(["項目", "設定値", "確認結果", "判定", "備考"], 2):
         c = ws.cell(row=8, column=i, value=h)
         c.font, c.fill, c.border = Font(bold=True), HDR, BORDER
         c.alignment = Alignment(horizontal="center")
@@ -87,11 +88,12 @@ def template(path):
     ws.add_data_validation(dv)
     for r, lab in enumerate(rows, 9):
         ws.cell(row=r, column=2, value=lab).border = BORDER
-        for c in (3, 4, 5):
+        for c in (3, 4, 5, 6):
             ws.cell(row=r, column=c).border = BORDER
         if lab in ("vCPU", "メモリ(GiB)", "EBSサイズ(GiB)"):
             ws.cell(row=r, column=3).number_format = "0"
-        dv.add("D%d" % r)
+        ws.cell(row=r, column=5).alignment = Alignment(horizontal="center")
+        dv.add("E%d" % r)
     vcpu = DataValidation(type="whole", operator="between", formula1="1", formula2="128")
     ws.add_data_validation(vcpu)
     vcpu.add("C12")
@@ -185,7 +187,7 @@ PROCEDURE = [
 ]
 # 手順タイトル → [(入力欄のラベル, パラメータキー)]、証跡画像の要求（説明, キー）
 PROCEDURE_KEYS = {
-    "記録: 作業日・作業者・確認者": [("作業日", "work_date"), ("作業者", "worker")],
+    "記録: 作業日・作業者・確認者": [("作業日", "work_date"), ("作業者", "worker"), ("確認者", "reviewer")],
     "対象インスタンスの基本情報を確認する。": [("インスタンスID", "instance_id"), ("インスタンスタイプ", "instance_type"), ("プライベートIP", "private_ip")],
     "AMI とサブネットを確認する。": [("AMI ID", "ami_id"), ("サブネットID", "subnet_id")],
     "セキュリティグループを確認する。": [("セキュリティグループ", "security_group_id")],

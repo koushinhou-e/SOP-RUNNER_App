@@ -14,11 +14,12 @@ from .images import fit, raw_image
 from .rules import to_number
 
 _DATE = re.compile(r"^\s*(\d{4})[-/](\d{1,2})[-/](\d{1,2})\s*$")
+_PLAIN_NUM = re.compile(r"^-?(0|[1-9]\d*)(\.\d+)?$")     # 先頭ゼロ付き（ID など）は文字列のまま
 
 
 def _typed(item, value, cell):
     s = str(value).strip()
-    if item.get("type") == "number":
+    if item.get("type") == "number" or ((item.get("source") or {}).get("kind") == "result" and _PLAIN_NUM.match(s)):
         n = to_number(s)
         if n is not None:
             return int(n) if n.is_integer() else n
