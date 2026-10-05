@@ -58,6 +58,7 @@
     var s = S(), n = countReqs(s);
     var nk = s.steps.reduce(function (a, st) { return a + (st.inputs || []).filter(function (inp) { return String(inp.key || '').trim(); }).length; }, 0);
     var head = '<b>証跡画像・キーの設定</b> <span class="muted">証跡画像の要求 ' + n + ' 件・キー設定済みの入力項目 ' + nk + ' 件</span> ';
+    if (s.tplId) return head + '<span class="okc">手順テンプレート「' + esc(s.tplName || '') + '」から開いています。</span> <span class="muted">キー・証跡画像の要求は、手順修正で保存したテンプレートに含まれます。</span>';
     if (s.libId) return head + '<span class="okc">テンプレートライブラリの手順書「' + esc(s.libName || '') + '」に' + (state === 'saved' ? '保存しました' : '自動保存されます') + '。同じ手順書を次に読み込むと再適用されます。</span>';
     return head + '<span class="muted">この手順書はテンプレートライブラリに未登録のため、設定はこの進捗にのみ保存されます。</span> ' +
       (lastFile ? '<button class="small primary" data-ev="register">ライブラリに登録して設定を保存</button>' : '<span class="muted">（ライブラリから開き直すと保存できます）</span>');

@@ -21,7 +21,7 @@ var RecordModel = {
     var rows = S.steps.map(function (st, i) {
       var r = S.results[st.id] || {};
       return {
-        no: i + 1, section: st.section || '', title: st.title || '', content: st.content || '', expected: st.expected || '',
+        no: i + 1, section: st.section || '', title: st.title || '', content: st.content || '', expected: window.SopHooks && SopHooks.resolveText ? SopHooks.resolveText(st.expected || '', true) : (st.expected || ''),
         values: (st.inputs || []).map(function (inp) { var v = (r.values || {})[inp.id]; return { label: inp.label, type: inp.type, unit: inp.unit || '', value: inp.type === 'check' ? (v ? '☑' : '☐') : (v == null ? '' : String(v)) }; }),
         confirmedAt: r.confirmedAt ? Fmt.local(r.confirmedAt) : '', note: r.note || '', anomaly: !!r.anomaly
       };

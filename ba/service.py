@@ -13,7 +13,7 @@ from . import report
 from . import rules
 from . import values as valmod
 from . import xlsx_detect
-from .store import Store, now, safe_name
+from .store import IMG_RE, Store, now, safe_name
 from .store import _lock as store_lock
 
 APP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -50,6 +50,42 @@ class Service:
                 raise ValueError(".docx ファイルではありません")
             return self.store.lib_create(typ, name, data, filename)
         raise ValueError("unknown type")
+
+    # ---------------- 手順テンプレート（手順修正で作る、ファイルなしの手順書） ----------------
+    @staticmethod
+    def clean_steps(steps):
+        """手順修正の保存データを検証・整形する（実行時の入力値などは持ち込まない）。"""
+        if not isinstance(steps, list) or not steps or len(steps) > 500:
+            raise ValueError("手順がありません（1〜500 件）")
+        s = lambda v: v if isinstance(v, str) else ""
+        out = []
+        for st in steps:
+            if not isinstance(st, dict) or not isinstance(st.get("id"), str):
+                raise ValueError("手順の形式が不正です")
+            inputs = [{"id": s(i.get("id")), "label": s(i.get("label")), "type": s(i.get("type")) or "text", "unit": s(i.get("unit")),
+                       "optional": bool(i.get("optional")), "key": s(i.get("key")).strip()}
+                      for i in st.get("inputs") or [] if isinstance(i, dict) and isinstance(i.get("id"), str)]
+            ev = [{"id": s(e.get("id")), "desc": s(e.get("desc")), "key": s(e.get("key")).strip()}
+                  for e in st.get("evidence") or [] if isinstance(e, dict) and isinstance(e.get("id"), str)]
+            refs = [{"id": r["id"], "w": int(r.get("w") or 0), "h": int(r.get("h") or 0), "ext": s(r.get("ext")) or "png",
+                     "name": s(r.get("name"))[:120], "caption": s(r.get("caption"))[:200]}
+                    for r in st.get("refImages") or [] if isinstance(r, dict) and IMG_RE.match(str(r.get("id")))]
+            out.append({"id": st["id"], "section": s(st.get("section")), "title": s(st.get("title")), "context": s(st.get("context")),
+                        "content": s(st.get("content")), "expected": s(st.get("expected")), "inputs": inputs, "evidence": ev, "refImages": refs})
+        return out
+
+    def save_procedure_template(self, name, steps, doc_title="", seq=0, param_ref=None, item_id=None):
+        """item_id なし = 新規テンプレート、あり = 上書き。"""
+        name = (name or "").strip()
+        if not name:
+            raise ValueError("テンプレート名を入力してください")
+        extra = {"kind": "steps", "steps": self.clean_steps(steps), "doc_title": doc_title or name, "seq": int(seq or 0),
+                 "param_ref": param_ref if isinstance(param_ref, dict) else None}
+        if item_id:
+            if self.store.lib_get(item_id).get("kind") != "steps":
+                raise ValueError("手順テンプレートではありません")
+            return self.store.lib_update(item_id, dict(extra, name=name))
+        return self.store.lib_create("procedure", name, extra=extra)
 
     def create_command_set(self, name, templates):
         return self.store.lib_create("command_set", name, extra={"templates": templates})
