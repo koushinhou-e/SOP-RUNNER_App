@@ -7,9 +7,11 @@ from . import commands as cmdmod
 from . import compare as cmpmod
 from . import fill as fillmod
 from . import paramsheet
+from . import report
 from . import rules
+from . import values as valmod
 from . import xlsx_detect
-from .store import Store, safe_name
+from .store import Store, now, safe_name
 
 APP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SAMPLES = os.path.join(APP_DIR, "samples")
@@ -123,6 +125,95 @@ class Service:
             errs = rules.validate(it, val) if kind not in ("none", "evidence") else []
             out.append({"id": it["id"], "sheet": it["sheet"], "cell": it["cell"], "label": it["label"], "kind": kind,
                         "key": src.get("key"), "value": val, "errors": errs})
+        return out
+
+    JOB_FIELDS = ("name", "template_id", "param_sheet_id", "server", "command_set_id", "procedure_id", "globals", "sop_key")
+
+    def update_job(self, job_id, b):
+        """作業の更新。inputs / compare は差分マージし、値が変わった項目に入力日時を記録する（古い JSON はそのまま）。"""
+        job = self.store.job_get(job_id)
+        for k in self.JOB_FIELDS:
+            if k in b:
+                if k == "sop_key" and b[k] is not None and not isinstance(b[k], str):
+                    raise ValueError("sop_key は文字列で指定してください")
+                job[k] = b[k]
+        ts = now()
+        if isinstance(b.get("inputs"), dict):
+            inputs, at = job.setdefault("inputs", {}), job.setdefault("inputs_at", {})
+            for k, v in b["inputs"].items():
+                if inputs.get(k) != v:
+                    at[k] = ts
+                inputs[k] = v
+        if isinstance(b.get("compare"), dict):
+            cmp_ = job.setdefault("compare", {})
+            for k, v in b["compare"].items():
+                if not isinstance(v, dict):
+                    continue
+                old = cmp_.get(k) or {}
+                v = dict(v)
+                if (old.get("actual") or "") != (v.get("actual") or ""):
+                    v["actual_at"] = ts
+                elif old.get("actual_at") and "actual_at" not in v:
+                    v["actual_at"] = old["actual_at"]
+                cmp_[k] = v
+        return self.store.job_save(job)
+
+    def sop_session(self, job):
+        key = job.get("sop_key")
+        return self.store.sop_get(key) if key else None
+
+    def all_values(self, job):
+        """最終値の整合チェック：期待値（パラメータシート）・作業入力・実測値・手順実行の入力値をキーで集約して判定する。"""
+        sess = self.sop_session(job)
+        groups = valmod.collect(self._params(job), job.get("server", ""), self._template(job), job, sess)
+        rows = valmod.evaluate(groups)
+        info = None
+        if job.get("sop_key"):
+            info = {"key": job["sop_key"], "found": bool(sess)}
+            if sess:
+                done = sum(1 for st in sess.get("steps") or [] if ((sess.get("results") or {}).get(st.get("id")) or {}).get("confirmedAt"))
+                info.update({"title": sess.get("docTitle") or sess.get("docName"), "executor": sess.get("executor", ""),
+                             "done": done, "total": len(sess.get("steps") or []), "updatedAt": valmod.norm_time(sess.get("updatedAt"))})
+        return {"rows": rows, "summary": valmod.summary(rows), "sop": info}
+
+    def values_meta(self, job, rows=None):
+        rows = rows if rows is not None else self.all_values(job)["rows"]
+        by = {r["key"]: r for r in rows if r.get("key")}
+        sess = self.sop_session(job) or {}
+        work_date = (by.get("work_date") or {}).get("final") or ""
+        if not work_date and sess.get("startedAt"):
+            work_date = valmod.norm_time(sess["startedAt"])[:10]
+        operator = (by.get("worker") or {}).get("final") or self._worker(job) or sess.get("executor") or ""
+        return {"job_name": job.get("name", ""), "server": job.get("server", ""), "work_date": work_date or datetime.date.today().strftime("%Y-%m-%d"),
+                "operator": operator, "generated_at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
+                "sop_title": sess.get("docTitle") or ""}
+
+    def values_html(self, job, for_browser=False):
+        v = self.all_values(job)
+        rows = [r for r in v["rows"] if r["entries"]]          # 入力された値のみ
+        meta = self.values_meta(job, v["rows"])
+        meta["summary"] = valmod.summary(rows)
+        return report.build_html(meta, rows, for_browser=for_browser)
+
+    def export_values_pdf(self, job, timeout=90):
+        """作業入力値一覧の PDF を exports/ に作る。ブラウザが無い・失敗した場合は pdf=None（印刷用 HTML で代替）。"""
+        base = "%s_%s_作業入力値一覧_%s" % (job.get("name", "job"), job.get("server", ""), datetime.datetime.now().strftime("%Y%m%d-%H%M%S"))
+        html_path = self.store.export_path(base + ".html")
+        with open(html_path, "w", encoding="utf-8") as f:
+            f.write(self.values_html(job))
+        out = {"html": os.path.basename(html_path), "pdf": None, "browser": None, "error": None,
+               "dir": os.path.dirname(html_path)}
+        browser = report.find_browser()
+        if not browser:
+            out["error"] = "Microsoft Edge（または Chrome / Chromium）が見つかりませんでした"
+            return out
+        out["browser"] = report.browser_label(browser)
+        pdf_path = self.store.export_path(base + ".pdf")
+        try:
+            report.html_to_pdf(browser, html_path, pdf_path, timeout=timeout)
+            out["pdf"] = os.path.basename(pdf_path)
+        except RuntimeError as e:
+            out["error"] = str(e)
         return out
 
     def job_view(self, job_id):

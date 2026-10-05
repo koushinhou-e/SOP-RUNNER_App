@@ -112,6 +112,11 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Security-Policy", CSP)
         for k, v in (headers or {}).items():
             self.send_header(k, v)
+        if not getattr(self, "_body_read", True) and (self.headers.get("Content-Length") or "0").strip() not in ("", "0"):
+            # 本体を読まないハンドラの場合、残りのバイトが次のリクエストとして解釈されないよう接続を閉じる
+            self.close_connection = True
+            if not any(k.lower() == "connection" for k in (headers or {})):
+                self.send_header("Connection", "close")
         self.end_headers()
         if self.command != "HEAD":
             self.wfile.write(body)
@@ -134,6 +139,7 @@ class Handler(BaseHTTPRequestHandler):
             raise HttpError(400, "Content-Length が不正です")
         if n > limit:   # 読み込む前に拒否する（大きな本体をメモリに載せない）
             raise HttpError(413, too_large)
+        self._body_read = True
         return self.rfile.read(n) if n else b""
 
     def _json(self):
@@ -174,6 +180,7 @@ class Handler(BaseHTTPRequestHandler):
         self._dispatch("DELETE")
 
     def _dispatch(self, method):
+        self._body_read = False
         try:
             self._check_host()
             u = urlparse(self.path)
@@ -265,7 +272,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(200, {"items": st.job_list()})
             if n == 1 and method == "POST":
                 b = self._json()
-                job = {k: b.get(k) for k in ("name", "template_id", "param_sheet_id", "server", "command_set_id", "procedure_id")}
+                job = {k: b.get(k) for k in ("name", "template_id", "param_sheet_id", "server", "command_set_id", "procedure_id", "sop_key")}
                 job.update({"inputs": {}, "compare": {}, "globals": b.get("globals") or {}})
                 return self._send(200, st.job_save(job))
             if n == 1:
@@ -274,15 +281,7 @@ class Handler(BaseHTTPRequestHandler):
             if n == 2 and method == "GET":
                 return self._send(200, S.job_view(jid))
             if n == 2 and method == "PUT":
-                job = st.job_get(jid)
-                b = self._json()
-                for k in ("name", "template_id", "param_sheet_id", "server", "command_set_id", "procedure_id", "globals"):
-                    if k in b:
-                        job[k] = b[k]
-                for k in ("inputs", "compare"):
-                    if k in b and isinstance(b[k], dict):
-                        job.setdefault(k, {}).update(b[k])
-                st.job_save(job)
+                S.update_job(jid, self._json())
                 return self._send(200, S.job_view(jid))
             if n == 2 and method == "DELETE":
                 st.job_delete(jid)
@@ -305,9 +304,20 @@ class Handler(BaseHTTPRequestHandler):
             if n == 3 and parts[2] == "compare.xlsx":
                 out = S.export_compare(job)
                 return self._file(out, os.path.basename(out))
+            if n == 3 and parts[2] == "values" and method == "GET":
+                return self._send(200, S.all_values(job))
+            if n == 3 and parts[2] == "values.html" and method == "GET":
+                return self._send(200, S.values_html(job, for_browser=True), "text/html; charset=utf-8")
+            if n == 3 and parts[2] == "values.pdf" and method == "POST":
+                self._json()
+                return self._send(200, S.export_values_pdf(job))
             if n == 3 and parts[2] == "deliverable.xlsx":
                 out, _ = S.export_deliverable(job, (qs.get("sop") or [None])[0])
                 return self._file(out, os.path.basename(out))
+        # ----- 出力済みファイル（作業入力値一覧 PDF など）-----
+        if p0 == "exports" and n == 2 and method == "GET":
+            p = st.export_file(parts[1])
+            return self._file(p, parts[1])
         # ----- SOP runner sessions -----
         if p0 == "sop":
             if n == 2 and parts[1] == "images" and method == "POST":

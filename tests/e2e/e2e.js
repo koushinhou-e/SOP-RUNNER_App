@@ -6,16 +6,21 @@ const { spawn } = require('child_process');
 const fs = require('fs'), path = require('path'), os = require('os');
 const ROOT = path.join(__dirname, '..', '..');
 const S = p => path.join(ROOT, 'samples', p);
-const OUT = path.join(ROOT, 'tests', '_out'); const SHOT = path.join(ROOT, 'screenshots');
-fs.rmSync(OUT, { recursive: true, force: true }); fs.mkdirSync(OUT, { recursive: true }); fs.mkdirSync(SHOT, { recursive: true });
+const OUT = path.join(ROOT, 'tests', '_out'); const SHOT = path.join(ROOT, 'screenshots'); const SHOTF = path.join(ROOT, 'screenshots_feature');
+fs.rmSync(OUT, { recursive: true, force: true }); fs.mkdirSync(OUT, { recursive: true }); fs.mkdirSync(SHOT, { recursive: true }); fs.mkdirSync(SHOTF, { recursive: true });
 const DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'ba-e2e-'));
 const PY = process.env.PYTHON || 'python3';
 let pass = 0, fail = 0;
 const ok = (c, m) => { if (c) { pass++; console.log('  ✔ ' + m); } else { fail++; console.log('  ✘ ' + m); } };
 
+// 作業入力値一覧 PDF：ボックスでは Chromium 系ブラウザを候補に指定（Windows では Edge を自動検出）
+// PDF 用ブラウザ：Linux の Chromium / Chrome、無ければ Playwright の chromium-headless-shell
+// （Playwright 同梱の “Chrome for Testing” 本体は --print-to-pdf でハングすることがあるため使わない）
+const headlessShell = (() => { try { const d = path.dirname(path.dirname(chromium.executablePath())); const base = path.dirname(d); const hs = fs.readdirSync(base).filter(n => n.startsWith('chromium_headless_shell-')).sort().pop(); if (!hs) return null; const sub = fs.readdirSync(path.join(base, hs)).find(n => n.startsWith('chrome-headless-shell')); return sub ? path.join(base, hs, sub, 'chrome-headless-shell') : null; } catch (e) { return null; } })();
+const PDF_BROWSER = process.env.BA_PDF_BROWSER || ['/usr/bin/chromium', '/usr/bin/chromium-browser', '/usr/bin/google-chrome', headlessShell].find(p => p && fs.existsSync(p)) || 'none';
 function startServer() {
   return new Promise((resolve, reject) => {
-    const proc = spawn(PY, ['-I', '-S', path.join(ROOT, 'app.py'), '--no-browser', '--port', '0', '--data-dir', DATA], { cwd: os.tmpdir() });
+    const proc = spawn(PY, ['-I', '-S', path.join(ROOT, 'app.py'), '--no-browser', '--port', '0', '--data-dir', DATA], { cwd: os.tmpdir(), env: Object.assign({}, process.env, { BA_PDF_BROWSER: PDF_BROWSER }) });
     let buf = '';
     proc.stdout.on('data', d => { buf += d; const m = buf.match(/起動しました: (http:\/\/127\.0\.0\.1:\d+\/)/); if (m) resolve({ proc, url: m[1] }); });
     proc.stderr.on('data', d => process.stderr.write('[server] ' + d));
@@ -26,7 +31,7 @@ function startServer() {
 
 (async () => {
   const { proc, url } = await startServer();
-  console.log('server:', url, 'python:', PY, '(-I -S, vendored deps only)');
+  console.log('server:', url, 'python:', PY, '(-I -S, vendored deps only)', 'pdf browser:', PDF_BROWSER);
   const origin = url.replace(/\/$/, '');
   const browser = await chromium.launch();
   const ctx = await browser.newContext({ acceptDownloads: true, viewport: { width: 1280, height: 900 }, locale: 'ja-JP', timezoneId: 'Asia/Tokyo' });
@@ -177,7 +182,14 @@ function startServer() {
     await page.waitForSelector('#dvTable');
     ok((await page.textContent('#jobBody')).includes('28 セルに書き込みます'), '将写入 28 个单元格（参数 11 + 输入 17；可选的特记事项未填）');
     await shot(); await page.screenshot({ path: path.join(SHOT, '06-deliverable.png') });
-    const dv = await dl('#dvExport', 'deliverable.xlsx');
+    await page.click('#dvExport');
+    await page.waitForSelector('#modal .modal.warn');
+    const warnTxt = await page.textContent('#modal');
+    ok(warnTxt.includes('最終値に不一致・食い違いがあります') && warnTxt.includes('インスタンスタイプ') && warnTxt.includes('t3.medium') && warnTxt.includes('t3.large'), '导出前警告：最终值不一致（instance_type t3.medium ≠ t3.large）');
+    await page.click('#modal button[data-mi="2"]');   // キャンセル
+    ok(!(await page.$('#modal')), '警告对话框：取消 → 不导出');
+    await page.click('#dvExport'); await page.waitForSelector('#modal .modal.warn');
+    const dv = await dl('#modal button[data-mi="0"]', 'deliverable.xlsx');   // このまま出力する
     ok(/web01_\d{8}-\d{6}\.xlsx$/.test(dv.name), '交付物导出：' + dv.name);
 
     console.log('8) 手顺执行（v1 模块，进度存服务器）＋ 自定义证迹图片');
@@ -201,6 +213,20 @@ function startServer() {
     const procMeta = (await api('/api/library?type=procedure')).items[0];
     const evs = procMeta.evidence && procMeta.evidence.steps;
     ok(evs && evs.length === 1 && evs[0].index === 2 && evs[0].items.length === 2 && evs[0].items[0].desc === 'EC2 詳細画面のスクリーンショット' && evs[0].items[0].key === 'img_ec2', '证迹要求已保存到模板库的手顺书设置（meta.evidence）');
+    // 入力項目にパラメータキーを設定（最終値チェック用）：第 1 步の「作業日」→ work_date、「作業者」→ worker
+    const st1 = await page.evaluate(() => SopApp.state().steps[0]);
+    const inpBy = l => st1.inputs.find(i => i.label === l);
+    ok(!!inpBy('作業日') && !!inpBy('作業者'), '第 1 步有输入项「作業日」「作業者」');
+    ok(await page.evaluate(() => document.querySelectorAll('#sopKeyList option[value="instance_type"]').length === 1 && document.querySelectorAll('#sopKeyList option[value="worker"]').length === 1), '键候选列表（datalist）：参数表的键 + 模板的作业输入键');
+    await page.fill(`#sop-app input.sop-key[data-iid="${inpBy('作業日').id}"]`, 'work_date');
+    await page.fill(`#sop-app input.sop-key[data-iid="${inpBy('作業者').id}"]`, 'worker');
+    await page.waitForTimeout(900);
+    ok(await page.evaluate(() => SopApp.state().steps[0].inputs.filter(i => i.key).map(i => i.key).join(',')) === 'work_date,worker', '编辑模式：输入项绑定参数键（inp.key）');
+    const keySteps = (((await api('/api/library?type=procedure')).items[0].evidence || {}).steps || []).find(x => x.index === 0);
+    ok(keySteps && keySteps.inputKeys.map(k => k.label + '=' + k.key).join(',') === '作業日=work_date,作業者=worker', '输入项的键已保存到模板库（随手顺书再次读取时恢复）');
+    await page.evaluate((iid) => { const el = document.querySelector(`#sop-app input.sop-key[data-iid="${iid}"]`); window.scrollTo(0, el.getBoundingClientRect().top + window.scrollY - 360); }, inpBy('作業者').id);
+    await page.evaluate(() => document.querySelector('#toast').classList.remove('show')); await page.waitForTimeout(300);
+    await page.screenshot({ path: path.join(SHOTF, '01-runner-key-binding.png') });
     await page.fill('#sop-app input[data-bind=executor]', '山田 太郎');
     await page.click('#sop-app #btnStart');
     await page.waitForSelector('#sop-app #btnConfirm');
@@ -214,7 +240,8 @@ function startServer() {
         else await page.fill(sel, inp.type === 'time' ? '2026-10-03 09:00' : inp.type === 'number' ? '1' : 'テスト');
       }
     };
-    await fillStep(); await page.click('#sop-app #btnConfirm');
+    await fillStep(); await page.fill('#in_' + inpBy('作業者').id, '山田 太朗');   // ① の「山田 太郎」と食い違う値
+    await page.click('#sop-app #btnConfirm');
     await fillStep(); await page.click('#sop-app #btnConfirm');
     await page.waitForSelector('#sop-app #evRun');
     await fillStep();
@@ -300,6 +327,51 @@ function startServer() {
     ok(media.length === 2 && (zipInfo.doc.match(/<w:drawing>/g) || []).length === 2 && media.every(m => zipInfo.rels.includes('Target="' + m.slice(5) + '"')) && zipInfo.ct.includes('Extension="png"'), 'docx：2 张图片（word/media + 关系 + 内容类型 + drawing）');
     ok(zipInfo.doc.includes('証跡 3-1：EC2 詳細画面のスクリーンショット'), 'docx：图片说明（证迹 3-1：…）');
 
+    console.log('8a) 最终值一致性检查 + 作业输入值一览 PDF');
+    const sessKey = await page.evaluate(() => SopApp.state().key);
+    const savedSess = JSON.parse(fs.readFileSync(path.join(DATA, 'sop_sessions', fs.readdirSync(path.join(DATA, 'sop_sessions'))[0]), 'utf8'));
+    ok(savedSess.results[st1.id].valuesAt && /Z$/.test(savedSess.results[st1.id].valuesAt[inpBy('作業者').id]), '手顺执行的输入值带输入时间（results[].valuesAt）');
+    await page.click('#nav [data-tab=jobs]'); await page.click('[data-job]'); await page.click('[data-jt=values]');
+    await page.waitForSelector('#vlTable');
+    ok((await page.textContent('#vlBindMsg')).includes('未紐付け') && await page.$('#vlBindCand'), '最终值检查：未绑定时显示候选执行记录');
+    await page.selectOption('#vlSop', sessKey);
+    await page.waitForFunction(() => /紐付け済み/.test((document.querySelector('#vlBindMsg') || {}).textContent || ''));
+    const jobNow = (await api('/api/jobs')).items[0];
+    ok(jobNow.sop_key === sessKey, '作业绑定手顺执行记录（job.sop_key）');
+    const vlStat = await page.textContent('#vlStat');
+    ok(vlStat.includes('不一致 1') && vlStat.includes('食い違い 1'), '一致性面板：不一致 1 / 食い違い 1 ' + vlStat);
+    const rowInfo = await page.evaluate(() => [...document.querySelectorAll('#vlTable tr[data-vkey]')].map(tr => ({ id: tr.getAttribute('data-vkey'), problem: tr.classList.contains('problem'), text: tr.textContent, bg: getComputedStyle(tr.cells[0]).backgroundColor })));
+    const wRow = rowInfo.find(r => r.id === 'worker'), iRow = rowInfo.find(r => r.id === 'instance_type'), dRow = rowInfo.find(r => r.id === 'work_date');
+    ok(wRow && wRow.problem && wRow.text.includes('食い違い') && wRow.text.includes('山田 太朗') && wRow.text.includes('山田 太郎') && wRow.text.includes('手順 1'), '作業者：手顺执行「山田 太朗」与 ①「山田 太郎」食い違い → 红色');
+    ok(iRow && iRow.problem && iRow.text.includes('不一致') && iRow.text.includes('t3.medium'), 'インスタンスタイプ：最终值 t3.medium ≠ 要求值 t3.large → 红色');
+    ok(dRow && !dRow.problem, '作業日：2026/10/03 与 2026-10-03 09:00 视为同一天（不报食い違い）');
+    ok(/rgb\(254, 242, 242\)/.test(wRow.bg) && (await page.$eval('#vlAlert', e => getComputedStyle(e).color)) === 'rgb(153, 27, 27)', '问题行与提示条为红色');
+    await page.waitForTimeout(1900); await shot();
+    await page.screenshot({ path: path.join(SHOTF, '02-consistency-panel.png') });
+    await page.evaluate(() => { const r = document.querySelector('#vlTable tr[data-vkey="worker"]'); window.scrollTo(0, r.getBoundingClientRect().top + window.scrollY - 330); });
+    await page.waitForTimeout(300);
+    await page.screenshot({ path: path.join(SHOTF, '02c-consistency-conflict-rows.png') });
+    await page.evaluate(() => window.scrollTo(0, 0));
+    // PDF（Chromium 系ブラウザでヘッドレス印刷）
+    await page.click('#vlPdf');
+    await page.waitForSelector('#modal a.btnlink[download]', { timeout: 120000 });
+    ok((await page.textContent('#modal')).includes('PDF を作成しました') && (await page.textContent('#modal')).includes('exports'), 'PDF 生成后显示保存位置（exports）');
+    await shot(); await page.screenshot({ path: path.join(SHOTF, '02b-pdf-created.png') });
+    const pdf = await dl('#modal a.btnlink[download]', 'values.pdf');
+    ok(/作業入力値一覧_\d{8}-\d{6}\.pdf$/.test(pdf.name) && fs.readFileSync(pdf.p).slice(0, 5).toString() === '%PDF-', '作业输入值一览 PDF 生成：' + pdf.name);
+    ok(fs.readdirSync(path.join(DATA, 'exports')).some(f => f === pdf.name), 'PDF 与其他交付物一起保存在 data/exports/');
+    // フォールバック（ブラウザが無い場合）：印刷用ページへ誘導
+    await page.route('**/values.pdf', r => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ pdf: null, html: 'x.html', browser: null, error: 'Microsoft Edge（または Chrome / Chromium）が見つかりませんでした' }) }));
+    await page.click('#vlPdf');
+    await page.waitForSelector('#modal a.btnlink');
+    ok((await page.textContent('#modal')).includes('PDF を自動作成できませんでした'), 'PDF 失败时：提示并提供打印用页面');
+    const [printPage] = await Promise.all([ctx.waitForEvent('page'), page.click('#modal a.btnlink')]);
+    await printPage.waitForLoadState();
+    ok(await printPage.$('#printBtn') && (await printPage.textContent('table')).includes('入力元（手順/ページ）'), '打印用页面（window.print 按钮、A4 横）');
+    ok(await printPage.evaluate(() => typeof window.print === 'function' && !!document.querySelector('script[src="/js/print.js"]')), '打印按钮脚本从本地加载（CSP 内）');
+    await printPage.close();
+    await page.unroute('**/values.pdf');
+
     console.log('8b) 交付物插入证迹图片（纯 Python，无 Pillow）');
     const tplId = (await api('/api/library?type=excel_template')).items[0].id;
     const tpl = await api('/api/library/' + tplId);
@@ -313,7 +385,11 @@ function startServer() {
     await page.check('#dvEvOn');
     await page.waitForTimeout(2500); await shot();
     await page.screenshot({ path: path.join(SHOT, '11-deliverable-evidence.png') });
-    const dve = await dl('#dvExport', 'deliverable_evidence.xlsx');
+    ok(await page.$eval('#dvEvSrc', e => e.value) === sessKey, '交付物：证迹记录默认选中已绑定的执行记录');
+    await page.click('#dvExport'); await page.waitForSelector('#modal .modal.warn');
+    await page.waitForTimeout(300);
+    await page.screenshot({ path: path.join(SHOTF, '03-export-warning.png') });
+    const dve = await dl('#modal button[data-mi="0"]', 'deliverable_evidence.xlsx');
     ok(/web01_\d{8}-\d{6}\.xlsx$/.test(dve.name), '含证迹图片的交付物导出：' + dve.name);
 
     console.log('8c) 再次从模板库打开同一手顺书 → 证迹要求自动重新应用');
@@ -335,7 +411,8 @@ function startServer() {
       ['①输入', async () => { await page.click('[data-act=backLib]'); await page.click('#nav [data-tab=jobs]'); await page.click('[data-job]'); await page.click('[data-jt=inputs]'); await page.waitForSelector('#inTable'); }],
       ['②命令', async () => { await page.click('[data-jt=commands]'); await page.waitForSelector('#cmdList .cmdcard'); }],
       ['③比对', async () => { await page.click('[data-jt=compare]'); await page.waitForSelector('#cmpTable tr[data-key]'); }],
-      ['④交付物', async () => { await page.click('[data-jt=deliver]'); await page.waitForSelector('#dvTable'); }],
+      ['④最终值', async () => { await page.click('[data-jt=values]'); await page.waitForSelector('#vlTable'); }],
+      ['⑤交付物', async () => { await page.click('[data-jt=deliver]'); await page.waitForSelector('#dvTable'); }],
       ['手顺执行(编辑+证迹)', async () => {
         await page.click('#nav [data-tab=sop]'); await page.waitForSelector('#sop-app');
         if (await page.evaluate(() => SopApp.state() && SopApp.state().phase !== 'edit')) {   // 第 2 轮：删除会话后从模板库重新打开（证迹要求再次自动应用）
@@ -360,7 +437,7 @@ function startServer() {
         const r = b.getBoundingClientRect(); if (!r.width || b.closest('.tscroll,.grid-prev,.hidden')) return;
         if (r.right > W + 1 || r.left < -1) bad.push('button "' + b.textContent.trim().slice(0, 20) + '" right=' + Math.round(r.right));
       });
-      document.querySelectorAll('.ev-box,.ev-drop,.ev-req,.ev-xlsx,#evLibNote').forEach(t => { const r = t.getBoundingClientRect(); if (r.width && (r.right > W + 1 || r.left < -1)) bad.push('evidence overflow ' + t.className + ' ' + Math.round(r.right)); });
+      document.querySelectorAll('.ev-box,.ev-drop,.ev-req,.ev-xlsx,#evLibNote,.vl-bind,.vl-alert,#vlStat').forEach(t => { const r = t.getBoundingClientRect(); if (r.width && (r.right > W + 1 || r.left < -1)) bad.push('evidence overflow ' + t.className + ' ' + Math.round(r.right)); });
       document.querySelectorAll('.tscroll').forEach(t => { const r = t.getBoundingClientRect(); if (r.width && r.right > W + 1) bad.push('tscroll overflow ' + Math.round(r.right)); });
       return bad;
     });

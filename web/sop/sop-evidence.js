@@ -21,7 +21,10 @@
   /* ---------- テンプレートライブラリとの連携（設定の保存・再適用） ---------- */
   function settingsOf(s) {
     var steps = [];
-    s.steps.forEach(function (st, i) { if (st.evidence && st.evidence.length) steps.push({ index: i, title: st.title, items: st.evidence.map(function (e) { return { id: e.id, desc: e.desc || '', key: e.key || '' }; }) }); });
+    s.steps.forEach(function (st, i) {
+      var keys = (st.inputs || []).filter(function (inp) { return String(inp.key || '').trim(); }).map(function (inp) { return { label: inp.label, key: String(inp.key).trim() }; });
+      if ((st.evidence && st.evidence.length) || keys.length) steps.push({ index: i, title: st.title, items: (st.evidence || []).map(function (e) { return { id: e.id, desc: e.desc || '', key: e.key || '' }; }), inputKeys: keys });
+    });
     return { docHash: s.hash, docName: s.docName, steps: steps, updated: new Date().toISOString() };
   }
   function applySettings(s, ev) {
@@ -33,8 +36,13 @@
       if (idx < 0 && s.steps[x.index] && !used[x.index]) idx = x.index;
       if (idx < 0) return;
       used[idx] = 1;
-      s.steps[idx].evidence = x.items.map(function (e) { return { id: e.id || rid(), desc: e.desc || '', key: e.key || '' }; });
-      n += x.items.length;
+      s.steps[idx].evidence = (x.items || []).map(function (e) { return { id: e.id || rid(), desc: e.desc || '', key: e.key || '' }; });
+      n += (x.items || []).length;
+      var taken = {};
+      (x.inputKeys || []).forEach(function (k) {   // 入力項目のパラメータキー（同じラベルの入力項目に適用）
+        var inps = s.steps[idx].inputs || [];
+        for (var j = 0; j < inps.length; j++) if (!taken[j] && inps[j].label === k.label) { taken[j] = 1; inps[j].key = k.key; n++; break; }
+      });
     });
     return n;
   }
@@ -48,7 +56,8 @@
   function countReqs(s) { return s.steps.reduce(function (a, st) { return a + ((st.evidence || []).length); }, 0); }
   function libNoteHtml(state) {
     var s = S(), n = countReqs(s);
-    var head = '<b>証跡画像の設定</b> <span class="muted">要求 ' + n + ' 件</span> ';
+    var nk = s.steps.reduce(function (a, st) { return a + (st.inputs || []).filter(function (inp) { return String(inp.key || '').trim(); }).length; }, 0);
+    var head = '<b>証跡画像・キーの設定</b> <span class="muted">証跡画像の要求 ' + n + ' 件・キー設定済みの入力項目 ' + nk + ' 件</span> ';
     if (s.libId) return head + '<span class="okc">テンプレートライブラリの手順書「' + esc(s.libName || '') + '」に' + (state === 'saved' ? '保存しました' : '自動保存されます') + '。同じ手順書を次に読み込むと再適用されます。</span>';
     return head + '<span class="muted">この手順書はテンプレートライブラリに未登録のため、設定はこの進捗にのみ保存されます。</span> ' +
       (lastFile ? '<button class="small primary" data-ev="register">ライブラリに登録して設定を保存</button>' : '<span class="muted">（ライブラリから開き直すと保存できます）</span>');
@@ -75,8 +84,19 @@
   }
 
   /* ---------- 描画 ---------- */
+  var keyOpts = null;   // 入力項目のキー候補（パラメータシートのキー・成果物テンプレートの項目キー）
+  function keyListHtml() { return (keyOpts || []).map(function (o) { return '<option value="' + esc(o.key) + '">' + esc(o.label) + '</option>'; }).join(''); }
+  function loadKeyOpts() {
+    Promise.all([Api.get('/api/library?type=param_sheet'), Api.get('/api/library?type=excel_template')]).then(function (r) {
+      var seen = {}, out = [];
+      r[0].items.forEach(function (m) { ((m.parsed || {}).params || []).forEach(function (p) { if (!seen[p.key]) { seen[p.key] = 1; out.push({ key: p.key, label: p.label + '（パラメータ）' }); } }); });
+      r[1].items.forEach(function (m) { (m.items || []).forEach(function (it) { if (it.key && /^[A-Za-z0-9_.-]+$/.test(it.key) && !seen[it.key] && (it.source || {}).kind === 'input') { seen[it.key] = 1; out.push({ key: it.key, label: it.label + '（作業入力）' }); } }); });
+      keyOpts = out; var dl = document.getElementById('sopKeyList'); if (dl) dl.innerHTML = keyListHtml();
+    }).catch(function () { keyOpts = []; });
+  }
   function editHeader() {
-    return '<div class="card ev-libnote" id="evLibNote">' + libNoteHtml() + '</div>';
+    if (!keyOpts) loadKeyOpts();
+    return '<div class="card ev-libnote" id="evLibNote">' + libNoteHtml() + '</div><datalist id="sopKeyList">' + keyListHtml() + '</datalist>';
   }
   function editExtra(st) {
     var ev = st.evidence || [];
@@ -154,6 +174,7 @@
       }
     });
     app.addEventListener('input', function (e) {
+      if (e.target.getAttribute('data-inped') === 'key') { persistSettings(); return; }   // 値の保存は sop-app 側（data-inped）
       var t = e.target; if (!t.hasAttribute('data-evdesc')) return;
       var st = stepById(t.getAttribute('data-sid')), it = (st.evidence || []).filter(function (x) { return x.id === t.getAttribute('data-rid'); })[0];
       if (!it) return;
@@ -254,7 +275,7 @@
       s.libId = m.id; s.libName = m.name;
       var n = applySettings(s, m.evidence);
       SopApp.save(); SopApp.render();
-      if (n) say('ライブラリの証跡画像設定を適用しました（' + n + ' 件）');
+      if (n) say('ライブラリの証跡画像・キー設定を適用しました（' + n + ' 件）');
     }).catch(function () { });
   };
   H.editHeader = editHeader;

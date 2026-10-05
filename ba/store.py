@@ -197,3 +197,12 @@ class Store:
 
     def export_path(self, name):
         return os.path.join(self.root, "exports", safe_name(name))
+
+    def export_file(self, name):
+        """exports/ 内の既存ファイル（名前の検証つき）。"""
+        if not name or safe_name(name) != name:
+            raise KeyError("bad export name")
+        p = self.export_path(name)
+        if not os.path.isfile(p):
+            raise KeyError(name)
+        return p
