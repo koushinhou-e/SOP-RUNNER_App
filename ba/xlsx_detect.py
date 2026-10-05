@@ -92,7 +92,13 @@ def _sheet_values(wb, ref, ws):
         if sh not in wb.sheetnames:
             continue
         s = wb[sh]
-        mc, mr, xc, xr = range_boundaries(rng.replace("$", ""))
+        try:
+            mc, mr, xc, xr = range_boundaries(rng.replace("$", ""))
+        except (TypeError, ValueError):
+            continue
+        # 列全体（A:A）や行全体（1:1）の参照は境界が None になるので、シートの使用範囲で補う
+        mr, xr = mr or 1, xr or s.max_row
+        mc, xc = mc or 1, xc or s.max_column
         for row in s.iter_rows(min_row=mr, max_row=min(xr, mr + 500), min_col=mc, max_col=xc):
             for c in row:
                 if not is_empty(c.value):
@@ -182,7 +188,9 @@ def _detect_sheet(wb, ws):
                     if n < MAX_DV_CELLS:
                         dv_map[(r, c)] = info
                         n += 1
-    maxr, maxc = min(ws.max_row, MAX_ROWS), min(ws.max_column, MAX_COLS)
+    # 入力規則だけが設定された空セルは使用範囲（max_row/max_column）の外にあることがあるので、走査範囲に含める
+    maxr = min(max([ws.max_row] + [r for r, _ in dv_map]), MAX_ROWS)
+    maxc = min(max([ws.max_column] + [c for _, c in dv_map]), MAX_COLS)
 
     def val(r, c):
         r, c = covered.get((r, c), (r, c))

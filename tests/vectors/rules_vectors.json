@@ -29,5 +29,7 @@
  {"item": {"type": "text", "rules": {"pattern": "t3\\.(medium|large)"}}, "value": "t3.large", "codes": []},
  {"item": {"type": "text", "rules": {"pattern": "t3\\.(medium|large)"}}, "value": "t3.large2", "codes": ["pattern"]},
  {"item": {"type": "text", "rules": {"pattern": "([a-z"}}, "value": "x", "codes": ["bad_pattern"]},
- {"item": {"type": "text", "rules": {"preset": "instance_type", "required": true}}, "value": "t3.large", "codes": []}
+ {"item": {"type": "text", "rules": {"preset": "instance_type", "required": true}}, "value": "t3.large", "codes": []},
+ {"item": {"type": "number", "rules": {"min": "abc", "max": "xyz"}}, "value": "5", "codes": []},
+ {"item": {"type": "number", "rules": {"min": "abc", "max": 3}}, "value": "5", "codes": ["max"]}
 ]

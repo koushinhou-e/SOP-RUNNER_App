@@ -9,6 +9,7 @@ app.js への構造パッチ（各パッチは一致を検証し、v1 が変わ�
   4. グローバルなドラッグ＆ドロップは「手順実行」タブ表示中のみ有効
   5. ホーム描画後に SopHooks.afterHome を呼ぶ（「ライブラリから開く」を表示）
   6. SopApp.importFile / save / refreshGate を公開（テンプレートライブラリ・証跡画像モジュールから呼び出す）
+  8. 入力項目のパラメータキー列（data-inped="key"）と値の入力日時 results[].valuesAt
   7. 証跡画像モジュール（web/sop/sop-evidence.js）用のフック：missing / onImport / afterParse / editHeader / editExtra / runExtra、結合時の引き継ぎ
 export.js には証跡画像の行・名前空間・パーツ拡張のフックを追加する。
 さらに tools/v1_ja.py の置換表で UI 文言を日本語化する（parser.js / export.js / app.js / app.css）。
@@ -51,6 +52,15 @@ PATCHES = [
     ("＋ 添加输入项</button></div></div></div>';", "＋ 添加输入项</button></div>' + (window.SopHooks && SopHooks.editExtra ? SopHooks.editExtra(st) : '') + '</div></div>';"),
     ("    m += '<div class=\"lbl\">备注（可选）</div>", "    if (window.SopHooks && SopHooks.runExtra) m += SopHooks.runExtra(st, r, confirmed);\n    m += '<div class=\"lbl\">备注（可选）</div>"),
     ("st.inputs = st.inputs.concat(nx.inputs);", "st.inputs = st.inputs.concat(nx.inputs); st.evidence = (st.evidence || []).concat(nx.evidence || []);"),
+    # ---- 最終値チェック：入力項目のパラメータキー（編集画面）と、値の入力日時 ----
+    ("<th>可选</th><th></th></tr>' +", "<th>可选</th><th title=\"パラメータキー（最終値チェック・作業入力値一覧で使用）\">キー</th><th></th></tr>' +"),
+    ("            '<td><input type=\"checkbox\" data-inped=\"optional\" data-sid=\"' + st.id + '\" data-iid=\"' + inp.id + '\"' + (inp.optional ? ' checked' : '') + '></td>' +",
+     "            '<td><input type=\"checkbox\" data-inped=\"optional\" data-sid=\"' + st.id + '\" data-iid=\"' + inp.id + '\"' + (inp.optional ? ' checked' : '') + '></td>' +\n"
+     "            '<td><input type=\"text\" class=\"mono sop-key\" list=\"sopKeyList\" data-inped=\"key\" data-sid=\"' + st.id + '\" data-iid=\"' + inp.id + '\" value=\"' + esc(inp.key || '') + '\" placeholder=\"例：instance_type\" title=\"パラメータシートのキーと同じにすると、作業の最終値チェックで突き合わせます\"></td>' +"),
+    ("res(cst).values[iid] = val;", "res(cst).values[iid] = val; stampValue(res(cst), iid);"),
+    ("r.values[t.getAttribute('data-inp')] = t.type === 'checkbox' ? t.checked : t.value;",
+     "r.values[t.getAttribute('data-inp')] = t.type === 'checkbox' ? t.checked : t.value; stampValue(r, t.getAttribute('data-inp'));"),
+    ("  function countDone(s) {", "  function stampValue(r, id) { (r.valuesAt = r.valuesAt || {})[id] = nowIso(); }   // 値の入力日時（最終値チェック用）\n  function countDone(s) {"),
 ]
 
 # export.js へのパッチ（証跡画像の埋め込み用。フックが無ければ v1 と同じ出力）

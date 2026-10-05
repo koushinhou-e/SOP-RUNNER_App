@@ -10,6 +10,32 @@ class DetectTest(unittest.TestCase):
         cls.items = xlsx_detect.detect_workbook(_util.TEMPLATE)
         cls.by = {i["cell"]: i for i in cls.items}
 
+    def test_list_validation_whole_column(self):
+        # 入力規則のリストが列全体（=選択肢!$A:$A）を参照していても検出できること（以前は TypeError で取り込み失敗）
+        import os
+        import tempfile
+        from openpyxl import Workbook
+        from openpyxl.worksheet.datavalidation import DataValidation
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "報告書"
+        ws["A1"], ws["A2"] = "OS", "リージョン"
+        opts = wb.create_sheet("選択肢")
+        for i, v in enumerate(["Amazon Linux 2023", "RHEL 9"], 1):
+            opts.cell(row=i, column=1, value=v)
+        dv = DataValidation(type="list", formula1="'選択肢'!$A:$A")
+        ws.add_data_validation(dv)
+        dv.add("B1")
+        fd, path = tempfile.mkstemp(suffix=".xlsx")
+        os.close(fd)
+        try:
+            wb.save(path)
+            items = {i["id"]: i for i in xlsx_detect.detect_workbook(path)}
+        finally:
+            os.remove(path)
+        self.assertEqual(items["報告書!B1"]["type"], "dropdown")
+        self.assertEqual(items["報告書!B1"]["options"], ["Amazon Linux 2023", "RHEL 9"])
+
     def test_counts_and_reasons(self):
         self.assertEqual(len(self.items), 39)
         reasons = {}

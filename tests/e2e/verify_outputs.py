@@ -111,5 +111,29 @@ if SOFFICE and shutil.which("pdftoppm"):
 else:
     print("  - soffice / pdftoppm が無いので描画確認をスキップ")
 
+# ---- 作業入力値一覧 PDF ----
+VP = os.path.join(OUT, "values.pdf")
+check(os.path.exists(VP), "作業入力値一覧 PDF が出力されている")
+if os.path.exists(VP) and shutil.which("pdfinfo") and shutil.which("pdftotext"):
+    info = subprocess.run(["pdfinfo", VP], stdout=subprocess.PIPE, universal_newlines=True).stdout
+    m = re.search(r"Page size:\s+([\d.]+) x ([\d.]+) pts \(A4\)", info)
+    check(m and float(m.group(1)) > float(m.group(2)), "PDF：A4 横（%s）" % (m.group(0) if m else info))
+    txt = subprocess.run(["pdftotext", "-layout", VP, "-"], stdout=subprocess.PIPE, universal_newlines=True).stdout
+    hdr = next((l for l in txt.splitlines() if "項目名" in l), "")
+    pos = [hdr.find(c) for c in ("項目名", "最終値", "要求値", "判定", "入力元（手順/ページ）", "入力日時")]
+    check(all(p >= 0 for p in pos) and pos == sorted(pos), "PDF：列 項目名 / 最終値 / 要求値 / 判定 / 入力元（手順/ページ）/ 入力日時 の順")
+    check("作業入力値一覧" in txt and "web01" in txt and "サーバ名" in txt and "作業日" in txt and "作業者" in txt and "山田 太朗" in txt and "2026-10-03" in txt, "PDF：見出し（サーバ名・作業日・作業者）")
+    check("t3.medium" in txt and "不一致" in txt and "食い違い" in txt and "山田 太朗" in txt and "手順 1" in txt, "PDF：不一致・食い違い・入力元（手順）")
+    fonts = subprocess.run(["pdffonts", VP], stdout=subprocess.PIPE, universal_newlines=True).stdout if shutil.which("pdffonts") else ""
+    check(not fonts or re.search(r"(?i)(cjk|gothic|meiryo|jp)", fonts), "PDF：日本語フォントが埋め込まれている")
+    if shutil.which("pdftoppm"):
+        SF = os.path.join(ROOT, "screenshots_feature")
+        os.makedirs(SF, exist_ok=True)
+        for f in os.listdir(SF):
+            if f.startswith("04-values-pdf"):
+                os.remove(os.path.join(SF, f))
+        subprocess.run(["pdftoppm", "-png", "-r", "110", VP, os.path.join(SF, "04-values-pdf")], check=True)
+        print("    render: values.pdf → screenshots_feature/04-values-pdf-*.png")
+
 print("\nRESULT: %d passed, %d failed" % (ok, bad))
 sys.exit(1 if bad else 0)

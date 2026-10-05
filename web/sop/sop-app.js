@@ -61,6 +61,7 @@
       });
     }).catch(function (e) { console.error(e); alert('解析に失敗しました：' + e.message); });
   }
+  function stampValue(r, id) { (r.valuesAt = r.valuesAt || {})[id] = nowIso(); }   // 値の入力日時（最終値チェック用）
   function countDone(s) { return s.steps.filter(function (st) { return s.results[st.id] && s.results[st.id].confirmedAt; }).length; }
 
   /* ---------- 下载 ---------- */
@@ -168,12 +169,13 @@
         '<div><div class="lbl">作業内容</div><textarea class="mono" rows="' + Math.min(10, Math.max(3, st.content.split('\n').length + 1)) + '" data-ed="content" data-sid="' + st.id + '" lang="ja">' + esc(st.content) + '</textarea></div>' +
         '<div><div class="lbl">期待結果</div><textarea rows="3" data-ed="expected" data-sid="' + st.id + '" lang="ja">' + esc(st.expected) + '</textarea>' +
         (st.context ? '<div class="lbl">章・節の説明（参照のみ）</div><textarea rows="2" data-ed="context" data-sid="' + st.id + '" lang="ja">' + esc(st.context) + '</textarea>' : '') + '</div>' +
-        '<div class="full"><div class="lbl">入力項目（' + st.inputs.length + '）</div><table><tr><th style="width:45%">ラベル</th><th>種類</th><th>単位</th><th>任意</th><th></th></tr>' +
+        '<div class="full"><div class="lbl">入力項目（' + st.inputs.length + '）</div><table><tr><th style="width:45%">ラベル</th><th>種類</th><th>単位</th><th>任意</th><th title="パラメータキー（最終値チェック・作業入力値一覧で使用）">キー</th><th></th></tr>' +
         st.inputs.map(function (inp) {
           return '<tr class="inprow"><td><input type="text" data-inped="label" data-sid="' + st.id + '" data-iid="' + inp.id + '" value="' + esc(inp.label) + '" lang="ja"></td><td><select data-inped="type" data-sid="' + st.id + '" data-iid="' + inp.id + '">' +
             Object.keys(TYPES).map(function (k) { return '<option value="' + k + '"' + (inp.type === k ? ' selected' : '') + '>' + TYPES[k] + '</option>'; }).join('') + '</select></td>' +
             '<td><input type="text" style="width:70px" data-inped="unit" data-sid="' + st.id + '" data-iid="' + inp.id + '" value="' + esc(inp.unit) + '"></td>' +
             '<td><input type="checkbox" data-inped="optional" data-sid="' + st.id + '" data-iid="' + inp.id + '"' + (inp.optional ? ' checked' : '') + '></td>' +
+            '<td><input type="text" class="mono sop-key" list="sopKeyList" data-inped="key" data-sid="' + st.id + '" data-iid="' + inp.id + '" value="' + esc(inp.key || '') + '" placeholder="例：instance_type" title="パラメータシートのキーと同じにすると、作業の最終値チェックで突き合わせます"></td>' +
             '<td><button class="small danger" data-act="delInput" data-sid="' + st.id + '" data-iid="' + inp.id + '">✕</button></td></tr>';
         }).join('') + '</table><button class="small" data-act="addInput" data-sid="' + st.id + '" style="margin-top:6px">＋ 入力項目を追加</button></div>' + (window.SopHooks && SopHooks.editExtra ? SopHooks.editExtra(st) : '') + '</div></div>';
       h += '<div class="ins"><button class="insbtn" data-act="insert" data-at="' + (i + 1) + '">＋ 手順を挿入</button></div>';
@@ -317,7 +319,7 @@
         S.view = (vi >= S.steps.length) ? 'done' : vi; save(); render(); break;
       case 'now': case 'setv':
         var cst = S.steps[S.view], val = act === 'now' ? nowLocalShort() : b.getAttribute('data-v');
-        res(cst).values[iid] = val; document.getElementById('in_' + iid).value = val; save(); refreshGate(); break;
+        res(cst).values[iid] = val; stampValue(res(cst), iid); document.getElementById('in_' + iid).value = val; save(); refreshGate(); break;
       case 'confirm':
         var cs = S.steps[S.view]; if (missing(cs).length) return;
         res(cs).confirmedAt = nowIso();
@@ -340,7 +342,7 @@
     if (S.phase === 'edit' || typeof S.view !== 'number') return;
     var cs = S.steps[S.view], r = res(cs);
     if (r.confirmedAt) return;
-    if (t.hasAttribute('data-inp')) { r.values[t.getAttribute('data-inp')] = t.type === 'checkbox' ? t.checked : t.value; save(); refreshGate(); }
+    if (t.hasAttribute('data-inp')) { r.values[t.getAttribute('data-inp')] = t.type === 'checkbox' ? t.checked : t.value; stampValue(r, t.getAttribute('data-inp')); save(); refreshGate(); }
     else if (t.hasAttribute('data-note')) { r.note = t.value; save(); }
     else if (t.hasAttribute('data-anom')) { r.anomaly = t.checked; save(); }
   }

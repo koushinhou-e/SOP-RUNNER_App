@@ -399,9 +399,9 @@
     var j = J.job;
     var h = '<div class="card"><div class="row spread"><div><h3 lang="ja" style="margin:0">' + esc(j.name) + '</h3><div class="muted" lang="ja">サーバ <b>' + esc(j.server || '—') + '</b> · テンプレート ' + esc(libName(j.template_id)) + ' · パラメータシート ' + esc(libName(j.param_sheet_id)) + ' · コマンド ' + esc(libName(j.command_set_id)) + '</div></div>' +
       '<div class="row">' + (j.procedure_id ? '<button id="jbProc">手順書を開く</button>' : '') + '<button id="jbEdit">設定</button><button class="danger" id="jbDel">削除</button></div></div>' +
-      '<div class="subtabs" id="jobTabs">' + [['inputs', '① 入力チェック'], ['commands', '② コマンド生成'], ['compare', '③ パラメータ比較'], ['deliver', '④ 成果物出力']].map(function (t) { return '<button data-jt="' + t[0] + '"' + (G.jobTab === t[0] ? ' class="on"' : '') + '>' + t[1] + '</button>'; }).join('') + '</div></div><div id="jobBody"></div>';
+      '<div class="subtabs" id="jobTabs">' + [['inputs', '① 入力チェック'], ['commands', '② コマンド生成'], ['compare', '③ パラメータ比較'], ['values', '④ 最終値チェック'], ['deliver', '⑤ 成果物出力']].map(function (t) { return '<button data-jt="' + t[0] + '"' + (G.jobTab === t[0] ? ' class="on"' : '') + '>' + t[1] + '</button>'; }).join('') + '</div></div><div id="jobBody"></div>';
     $('#jobMain').innerHTML = h;
-    ({ inputs: drawInputs, commands: drawCommands, compare: drawCompare, deliver: drawDeliver })[G.jobTab]();
+    ({ inputs: drawInputs, commands: drawCommands, compare: drawCompare, values: drawValues, deliver: drawDeliver })[G.jobTab]();
   }
   $('#jobs').addEventListener('click', function (e) {
     var t = e.target, it = t.closest('[data-job]');
@@ -446,10 +446,12 @@
     var s = $('#inStat'); if (s) s.innerHTML = bad ? '<span class="err" style="font-size:13px">ルール違反 ' + bad + ' 件（全 ' + total + ' 項目）</span>' : '<span class="okc" style="font-size:13px">全 ' + total + ' 項目 チェック OK</span>';
   }
   var pendingInputs = {};
-  var saveInputs = debounce(function () {
+  function flushInputs() {
     var b = pendingInputs; pendingInputs = {};
-    Api.put('/api/jobs/' + J.job.id, { inputs: b }).then(function (v) { J.job = v.job; J.resolved = v.resolved; }).catch(fail);
-  }, 300);
+    if (!Object.keys(b).length || !J) return Promise.resolve();
+    return Api.put('/api/jobs/' + J.job.id, { inputs: b }).then(function (v) { J.job = v.job; J.resolved = v.resolved; });
+  }
+  var saveInputs = debounce(function () { flushInputs().catch(fail); }, 300);
   function onInputChange(e) {
     var t = e.target; if (!t.hasAttribute('data-in') || !J) return;
     var id = t.getAttribute('data-in'); pendingInputs[id] = t.value; J.job.inputs[id] = t.value;
@@ -530,7 +532,87 @@
     cmpStat(); queueCmp(key);
   });
 
-  /* ---------- ④ 成果物出力 ---------- */
+  function flushAll() { return Promise.all([flushInputs(), flushCompare()]); }
+
+  /* ---------- 共通：ダイアログ ---------- */
+  // opts: { title, html, cls, buttons: [{ label, value, cls, href }] } → 押したボタンの value（Esc / 背景クリックは ''）
+  function showModal(opts) {
+    return new Promise(function (resolve) {
+      var o = document.createElement('div'); o.className = 'modal-back'; o.id = 'modal';
+      o.innerHTML = '<div class="modal ' + (opts.cls || '') + '" role="dialog" aria-modal="true" aria-labelledby="modalTitle"><h3 id="modalTitle">' + esc(opts.title) + '</h3><div class="modal-body">' + opts.html + '</div><div class="modal-actions">' +
+        opts.buttons.map(function (b, i) { return b.href ? '<a class="btnlink ' + (b.cls || '') + '" data-mi="' + i + '" href="' + esc(b.href) + '"' + (b.download ? ' download' : ' target="_blank" rel="noopener"') + '>' + esc(b.label) + '</a>' : '<button class="' + (b.cls || '') + '" data-mi="' + i + '">' + esc(b.label) + '</button>'; }).join('') + '</div></div>';
+      function close(v) { o.remove(); document.removeEventListener('keydown', onKey); resolve(v); }
+      function onKey(e) { if (e.key === 'Escape') close(''); }
+      o.addEventListener('click', function (e) { var b = e.target.closest('[data-mi]'); if (b) close(opts.buttons[+b.getAttribute('data-mi')].value || ''); else if (e.target === o) close(''); });
+      document.addEventListener('keydown', onKey);
+      document.body.appendChild(o);
+      var f = $('.modal-actions [data-mi]', o); if (f) f.focus();
+    });
+  }
+
+  /* ---------- ④ 最終値チェック ---------- */
+  var VSTAT = { match: '一致', mismatch: '不一致', missing: '未入力', no_expected: '期待値なし', invalid: '書式エラー', ok: '入力済み' };
+  function vPill(r) { return r.conflict ? '<span class="pill mismatch">食い違い</span>' + (r.status === 'mismatch' ? ' <span class="pill mismatch">不一致</span>' : '') : '<span class="pill ' + (r.status === 'ok' ? 'none' : r.status === 'invalid' ? 'mismatch' : r.status) + '">' + VSTAT[r.status] + '</span>'; }
+  function shortAt(t) { return t ? t.slice(5, 16).replace('-', '/') : ''; }
+  function sessionLabel(s) {
+    var done = (s.steps || []).filter(function (st) { return s.results && s.results[st.id] && s.results[st.id].confirmedAt; }).length;
+    return (s.docTitle || s.docName) + '（確認 ' + done + '/' + (s.steps || []).length + '・' + (s.updatedAt ? new Date(s.updatedAt).toLocaleString('sv-SE').slice(0, 16) : '') + '）';
+  }
+  function drawValues() {
+    var body = $('#jobBody');
+    body.innerHTML = '<div class="card muted">集計しています…</div>';
+    flushAll().then(function () { return Promise.all([Api.get('/api/jobs/' + J.job.id + '/values'), Api.get('/api/sop/sessions')]); }).then(function (res) {
+      if (stale(body, 'values')) return;
+      var v = res[0], sessions = res[1].items, sm = v.summary, only = G.valuesAll ? false : true;
+      var proc = (G.lib.procedure || []).filter(function (m) { return m.id === J.job.procedure_id; })[0];
+      sessions.sort(function (a, b) { var pa = proc && a.docName === proc.original_name ? 1 : 0, pb = proc && b.docName === proc.original_name ? 1 : 0; return pb - pa || String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')); });
+      var cand = !J.job.sop_key && proc ? sessions.filter(function (s) { return s.docName === proc.original_name; })[0] : null;
+      var bound = v.sop;
+      var bindMsg = bound ? (bound.found ? '<span class="okc">紐付け済み：' + esc(bound.title) + '（確認 ' + bound.done + '/' + bound.total + '）</span>' : '<span class="err">紐付けた手順実行の記録が見つかりません（削除された可能性があります）</span>')
+        : '<span class="muted">未紐付け。手順実行で入力した値（キーを設定した入力項目）を集約するには記録を選んでください。' + (cand ? '候補：「' + esc(cand.docTitle || cand.docName) + '」' : '') + '</span>';
+      var rows = v.rows.filter(function (r) { return !only || r.entries.length; });
+      body.innerHTML = '<div class="card"><div class="row spread"><h3>最終値の整合チェック</h3><div class="row"><span id="vlStat">' +
+        '<span class="pill ' + (sm.mismatch ? 'mismatch' : 'none') + '">不一致 ' + sm.mismatch + '</span> <span class="pill ' + (sm.conflict ? 'mismatch' : 'none') + '">食い違い ' + sm.conflict + '</span> ' +
+        '<span class="pill match">一致 ' + sm.match + '</span> <span class="pill missing">未入力 ' + sm.missing + '</span></span>' +
+        '<button class="primary" id="vlPdf">作業入力値一覧 PDF</button></div></div>' +
+        '<p class="muted">パラメータシートの期待値（要求値）、① 作業入力、③ 実測値、手順実行の入力値（キーを設定した項目）を同じキーでまとめ、最終値を ③ と同じ判定ルールで照合します。同じ項目に入力元ごとに異なる値があれば「食い違い」として赤く表示します。最終値は入力日時が最も新しい値です。</p>' +
+        '<div class="vl-bind"><label class="nowrap" for="vlSop"><b>手順実行の記録</b></label><select id="vlSop"><option value="">（紐付けない）</option>' +
+        sessions.map(function (s) { return '<option value="' + esc(s.key) + '"' + (s.key === J.job.sop_key ? ' selected' : '') + '>' + esc(sessionLabel(s)) + '</option>'; }).join('') + '</select>' +
+        (cand ? '<button class="small" id="vlBindCand">候補を紐付ける</button>' : '') + '<span id="vlBindMsg">' + bindMsg + '</span></div>' +
+        (sm.problems ? '<div class="vl-alert" id="vlAlert">⚠ 要確認 ' + sm.problems + ' 項目：' + esc(v.rows.filter(function (r) { return r.problem; }).slice(0, 6).map(function (r) { return r.label; }).join('、')) + (sm.problems > 6 ? ' ほか' : '') + '</div>' : (sm.entered ? '<div class="vl-okbar">✓ 要求値との不一致・入力値の食い違いはありません</div>' : '')) +
+        '<div class="row spread" style="margin:10px 0 6px"><label class="nowrap"><input type="checkbox" id="vlOnly"' + (only ? ' checked' : '') + '> 入力のある項目だけ表示</label><span class="muted">' + rows.length + ' / ' + v.rows.length + ' 項目</span></div>' +
+        '<div class="tscroll"><table class="t" id="vlTable"><tr><th class="w-item">項目 / キー</th><th>要求値</th><th>最終値</th><th>判定</th><th>入力元</th><th class="nowrap">入力日時</th><th class="w-ents">各入力元の値</th></tr>' +
+        rows.map(function (r) {
+          return '<tr data-vkey="' + esc(r.id) + '" class="' + (r.problem ? 'problem' : '') + '"><td lang="ja">' + esc(r.label) + (r.key && r.key !== r.label ? '<div class="mono muted keyline">' + esc(r.key) + '</div>' : '') + '</td>' +
+            '<td class="mono brk" lang="ja">' + (r.has_expected ? esc(r.expected) : '<span class="muted">—</span>') + '</td><td class="brk final" lang="ja">' + esc(r.final) + '</td><td class="nowrap">' + vPill(r) +
+            (r.errors.length ? '<div class="err">' + esc(r.errors.map(function (x) { return x.message; }).join('；')) + '</div>' : '') + '</td>' +
+            '<td lang="ja" class="src">' + esc(r.final_source) + '</td><td class="nowrap muted">' + esc(shortAt(r.final_at)) + '</td>' +
+            '<td class="ents">' + r.entries.map(function (e) { return '<div class="vl-ent' + (e.differs ? ' diff' : '') + '"><span class="src">' + esc(e.source) + '</span>：<b lang="ja">' + esc(e.value) + '</b>' + (e.judge === 'mismatch' ? ' <span class="pill mismatch">不一致</span>' : '') + (e.at ? ' <span class="muted">' + esc(shortAt(e.at)) + '</span>' : '') + '</div>'; }).join('') + '</td></tr>';
+        }).join('') + '</table></div></div>';
+      $('#vlOnly').addEventListener('change', function (e) { G.valuesAll = !e.target.checked; drawValues(); });
+      function bind(key) { Api.put('/api/jobs/' + J.job.id, { sop_key: key || null }).then(function (r) { J.job = r.job; toast(key ? '手順実行の記録を紐付けました' : '紐付けを解除しました'); drawValues(); }).catch(fail); }
+      $('#vlSop').addEventListener('change', function (e) { bind(e.target.value); });
+      if (cand) $('#vlBindCand').addEventListener('click', function () { bind(cand.key); });
+      $('#vlPdf').addEventListener('click', function (e) { makeValuesPdf(e.target); });
+    }).catch(fail);
+  }
+  function makeValuesPdf(btn) {
+    btn.disabled = true; toast('作業入力値一覧の PDF を作成しています…');
+    flushAll().then(function () { return Api.post('/api/jobs/' + J.job.id + '/values.pdf', {}); }).then(function (r) {
+      btn.disabled = false;
+      if (r.pdf) {
+        showModal({ title: '作業入力値一覧の PDF を作成しました', cls: 'info',
+          html: '<p>' + esc(r.browser) + ' で A4 横の PDF を作成し、成果物と同じ出力フォルダに保存しました。</p><p class="mono muted brk">' + esc(r.dir) + '<br>' + esc(r.pdf) + '</p>',
+          buttons: [{ label: 'PDF をダウンロード', cls: 'primary', href: Api.dl('/api/exports/' + encodeURIComponent(r.pdf)), download: true, value: 'dl' }, { label: '印刷用ページを開く', href: Api.dl('/api/jobs/' + J.job.id + '/values.html'), value: 'open' }, { label: '閉じる' }] });
+        return;
+      }
+      showModal({ title: 'PDF を自動作成できませんでした', cls: 'info',
+        html: '<p>' + esc(r.error || '') + '</p><p>印刷用ページを開き、「印刷 / PDF に保存」ボタンから PDF にしてください（用紙は A4 横に設定済み）。印刷用 HTML は出力フォルダにも保存しました：<br><span class="mono muted">' + esc(r.html) + '</span></p>',
+        buttons: [{ label: '印刷用ページを開く', cls: 'primary', href: Api.dl('/api/jobs/' + J.job.id + '/values.html'), value: 'open' }, { label: '閉じる' }] });
+    }).catch(function (e) { btn.disabled = false; fail(e); });
+  }
+
+  /* ---------- ⑤ 成果物出力 ---------- */
   function drawDeliver() {
     var body = $('#jobBody');
     if (!J.template) { body.innerHTML = '<div class="card muted">この作業には成果物テンプレートが設定されていません。</div>'; return; }
@@ -538,7 +620,7 @@
       if (stale(body, 'deliver')) return;
       J.job = v.job; J.resolved = v.resolved;
       var filled = v.resolved.filter(function (r) { return r.kind !== 'none' && r.kind !== 'evidence' && String(r.value || '').trim(); }).length, evCells = v.resolved.filter(function (r) { return r.kind === 'evidence'; });
-      body.innerHTML = '<div class="card"><div class="row spread"><h3>成果物出力</h3><div class="row"><button id="dvMap">マッピング編集</button><button class="primary" id="dvExport">成果物を出力 .xlsx</button></div></div>' +
+      body.innerHTML = '<div class="card"><div class="row spread"><h3>成果物出力</h3><div class="row"><button id="dvMap">マッピング編集</button><button id="dvPdf">作業入力値一覧 PDF</button><button class="primary" id="dvExport">成果物を出力 .xlsx</button></div></div>' +
         '<p class="muted">パラメータシートの値と作業入力をお客様テンプレートの該当セルに書き込みます。テンプレートの書式（フォント・塗りつぶし・罫線・セル結合・列幅・入力規則）はそのまま保持されます。「記入しない」セルは変更しません。出力後、個別の記述は Excel で手作業で編集してください。</p>' +
         '<p><b>' + filled + '</b> セルに書き込みます' + (v.errors ? '。<span class="err" style="font-size:14px">うち ' + v.errors + ' 項目がチェック NG です（出力は可能）</span>' : '') + '。</p>' +
         '<div class="ev-xlsx" id="dvEv"><label class="nowrap"><input type="checkbox" id="dvEvOn" disabled> 証跡画像を挿入する</label> <select id="dvEvSrc" disabled><option value="">（読み込み中…）</option></select>' +
@@ -553,10 +635,30 @@
         items.sort(function (a, b) { var pa = proc && a.s.docName === proc.original_name ? 1 : 0, pb = proc && b.s.docName === proc.original_name ? 1 : 0; return pb - pa || String(b.s.updatedAt || '').localeCompare(String(a.s.updatedAt || '')); });
         var sel = $('#dvEvSrc'), on = $('#dvEvOn');
         sel.innerHTML = items.length ? items.map(function (x) { return '<option value="' + esc(x.s.key) + '">' + esc(x.s.docTitle || x.s.docName) + '（画像 ' + x.n + ' 枚・' + esc(x.s.updatedAt ? new Date(x.s.updatedAt).toLocaleString('sv-SE').slice(0, 16) : '') + '）</option>'; }).join('') : '<option value="">証跡画像のある手順実行の記録がありません</option>';
+        if (J.job.sop_key && items.some(function (x) { return x.s.key === J.job.sop_key; })) sel.value = J.job.sop_key;   // 最終値チェックで紐付けた記録を既定に
         on.disabled = !items.length; sel.disabled = !items.length || !on.checked;
         on.addEventListener('change', function () { sel.disabled = !on.checked; });
       }).catch(fail);
-      $('#dvExport').addEventListener('click', function () { var on = $('#dvEvOn'), src = $('#dvEvSrc') && $('#dvEvSrc').value; download('/api/jobs/' + J.job.id + '/deliverable.xlsx' + (on && on.checked && src ? '?sop=' + encodeURIComponent(src) : '')); toast('成果物を生成しています…'); });
+      $('#dvPdf').addEventListener('click', function (e) { makeValuesPdf(e.target); });
+      $('#dvExport').addEventListener('click', function () {
+        var on = $('#dvEvOn'), src = $('#dvEvSrc') && $('#dvEvSrc').value;
+        function go() { download('/api/jobs/' + J.job.id + '/deliverable.xlsx' + (on && on.checked && src ? '?sop=' + encodeURIComponent(src) : '')); toast('成果物を生成しています…'); }
+        // 出力前に最終値の整合チェック：不一致・食い違いがあれば警告（そのまま出力も可能。止めはしない）
+        flushAll().then(function () { return Api.get('/api/jobs/' + J.job.id + '/values'); }).then(function (v) {
+          var probs = v.rows.filter(function (r) { return r.problem; });
+          if (!probs.length) return go();
+          return showModal({ title: '最終値に不一致・食い違いがあります', cls: 'warn',
+            html: '<p>次の ' + probs.length + ' 項目は、要求値と一致しないか、入力元によって値が異なります。このまま成果物を出力しますか？</p><ul class="modal-list">' +
+              probs.slice(0, 8).map(function (r) {
+                return '<li><b lang="ja">' + esc(r.label) + '</b>：最終値 <span class="mono">' + esc(r.final) + '</span>' + (r.has_expected ? ' ／ 要求値 <span class="mono">' + esc(r.expected) + '</span>' : '') + ' ' + vPill(r) +
+                  r.entries.filter(function (e) { return e.differs; }).map(function (e) { return '<div class="muted">≠ ' + esc(e.source) + '：' + esc(e.value) + '</div>'; }).join('') + '</li>';
+              }).join('') + (probs.length > 8 ? '<li class="muted">ほか ' + (probs.length - 8) + ' 項目</li>' : '') + '</ul>',
+            buttons: [{ label: 'このまま出力する', value: 'go', cls: 'danger' }, { label: '最終値チェックを開く', value: 'check', cls: 'primary' }, { label: 'キャンセル', value: '' }] }).then(function (a) {
+            if (a === 'go') go();
+            else if (a === 'check') { G.jobTab = 'values'; drawJob(); }
+          });
+        }).catch(fail);
+      });
       $('#dvMap').addEventListener('click', function () { G.libView = { id: J.job.template_id }; setTab('library'); });
     }).catch(fail);
   }
@@ -565,5 +667,5 @@
   window.addEventListener('dragover', function (e) { e.preventDefault(); });
   window.addEventListener('drop', function (e) { e.preventDefault(); });
   Api.get('/api/presets').then(function (r) { Rules.setPresets(r.presets, r.messages); }).catch(fail).then(function () { setTab(G.tab); });   // 読み込み中にユーザーが切り替えたタブを維持（競合で上書きしない）
-  window.BA = { G: G, setTab: setTab, openJob: openJob, flush: function () { return flushCompare(); } };
+  window.BA = { G: G, setTab: setTab, openJob: openJob, flush: function () { return flushAll(); } };
 })();
