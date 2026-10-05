@@ -15,7 +15,11 @@ from openpyxl.styles.numbers import is_date_format
 from openpyxl.utils import get_column_letter, range_boundaries
 
 PLACEHOLDER = re.compile(r"\{\{\s*([A-Za-z_][\w.-]*)\s*\}\}|[＿_]{3,}|＿{2,}|[（(][ 　]*[）)]|【[ 　]*】")
-GENERIC_HEADER = re.compile(r"^(設定値|値|内容|入力|入力欄|記入欄|記入|value|values|パラメータ値|実績値|設定内容|値/内容)$", re.I)
+GENERIC_HEADER = re.compile(r"^(設定値|値|内容|入力|入力欄|記入欄|記入|value|values|パラメータ値|設定内容|値/内容)$", re.I)
+# 自動マッピングで「作業結果」に割り当てる列見出し（行ラベルがパラメータに対応する場合のみ）
+RESULT_HEADER = re.compile(r"(確認結果|確認値|実測値|実績値|実施結果|取得値|現状値|結果|actual|result)", re.I)
+JUDGE_HEADER = re.compile(r"(判定|合否|可否|評価|ok\s*/\s*ng|judge)", re.I)
+JUDGE_PAIRS = [("ok", "ng"), ("合格", "不合格"), ("○", "×"), ("〇", "×"), ("良", "否"), ("可", "否")]
 OPTIONAL_HEADER = re.compile(r"(備考|メモ(?!リ)|コメント|特記|note|remark|comment)", re.I)
 NUM_LABEL = re.compile(r"(数|サイズ|容量|GiB|GB|MiB|MB|TB|vCPU|CPU|台数|件数|ポート|port|size|count|メモリ)", re.I)
 DATE_LABEL = re.compile(r"(日付|作業日|実施日|確認日|date)", re.I)
@@ -317,8 +321,27 @@ def _detect_sheet(wb, ws):
     return items
 
 
+def judge_marks(options):
+    """判定セルに書く (合格の値, 不合格の値)。選択肢に OK/NG・合格/不合格・○/× などがあればその表記を使う。"""
+    opts = [str(o).strip() for o in options or [] if str(o).strip()]
+    low = {unicodedata.normalize("NFKC", o).lower(): o for o in opts}
+    for good, bad in JUDGE_PAIRS:
+        if good in low and bad in low:
+            return low[good], low[bad]
+    return "OK", "NG"
+
+
+def _judge_options(options):
+    low = {unicodedata.normalize("NFKC", str(o)).strip().lower() for o in options or []}
+    return any(g in low and b in low for g, b in JUDGE_PAIRS)
+
+
 def auto_map(items, params):
-    """根据参数表自动把模板单元格映射到参数键（只映射纯“行标签”项，不映射 xx / 確認結果 这类列）。"""
+    """根据参数表自动映射：
+    - 行ラベルだけの項目（設定値の列）→ パラメータ（kind=param）
+    - 行ラベルがパラメータに対応し、列見出しが 確認結果 / 実測値 など → 作業結果（kind=result：作業中に入力した値）
+    - 列見出しが 判定 / 合否、または選択肢が OK/NG・合格/不合格 → 判定（kind=judge：設定値との一致で OK/NG）
+    """
     by_key = {norm_label(p["key"]): p["key"] for p in params}
     by_label, by_base = {}, {}
     for p in params:
@@ -326,11 +349,10 @@ def auto_map(items, params):
         by_base.setdefault(base_label(p["label"]), p["key"])
     n = 0
     for it in items:
-        if it.get("col_header"):
-            continue
         if (it.get("source") or {}).get("kind") not in (None, "input", "none") or it.get("_manual"):
             continue
-        cands = [it.get("key"), it.get("row_label"), it.get("label")]
+        header = it.get("col_header")
+        cands = [it.get("row_label")] if header else [it.get("key"), it.get("row_label"), it.get("label")]
         hit = None
         for cnd in cands:
             if not cnd:
@@ -339,9 +361,17 @@ def auto_map(items, params):
             hit = by_key.get(k) or by_label.get(k) or by_base.get(base_label(cnd))
             if hit:
                 break
-        if hit:
+        if not hit:
+            continue
+        if not header:
             it["source"] = {"kind": "param", "key": hit}
-            n += 1
+        elif JUDGE_HEADER.search(header) or (it.get("type") == "dropdown" and _judge_options(it.get("options"))):
+            it["source"] = {"kind": "judge", "key": hit}
+        elif RESULT_HEADER.search(header):
+            it["source"] = {"kind": "result", "key": hit}
+        else:
+            continue            # 備考などの列はそのまま
+        n += 1
     return n
 
 

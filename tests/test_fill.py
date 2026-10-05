@@ -31,7 +31,9 @@ class FillTest(unittest.TestCase):
         values[by["C4"]["id"]] = "2026/10/03"
         values[by["C5"]["id"]] = "山田 太郎"
         values[by["C6"]["id"]] = "佐藤 花子"
-        values[by["D11"]["id"]] = "OK"
+        values[by["D12"]["id"]] = "2"            # 確認結果（作業結果）の数値は数値として書く
+        values[by["D15"]["id"]] = "007"          # 先頭ゼロ付きは文字列のまま
+        values[by["E11"]["id"]] = "OK"
         values[by["C21"]["id"]] = "合格"
         self.items = items
         self.written = fill.fill_template(_util.TEMPLATE, items, values, self.out)
@@ -48,12 +50,14 @@ class FillTest(unittest.TestCase):
         self.assertEqual(ws["C4"].value.strftime("%Y-%m-%d"), "2026-10-03")   # date-formatted cell → datetime
         self.assertEqual(ws["C3"].value, "サンプル基盤構築")   # {{project_name}} replaced
         self.assertEqual(ws["C6"].value, "佐藤 花子")
-        self.assertEqual(ws["D11"].value, "OK")
+        self.assertEqual(ws["E11"].value, "OK")
+        self.assertEqual(ws["D12"].value, 2)
+        self.assertEqual(ws["D15"].value, "007")
         self.assertEqual(ws["C21"].value, "合格")
-        self.assertIsNone(ws["E9"].value)                  # "不填" cells untouched
+        self.assertIsNone(ws["F9"].value)                  # "不填" cells untouched
         self.assertIsNone(ws["D9"].value)
         self.assertEqual(ws["C22"].value, "（　　　）")       # not filled → placeholder kept for hand edit
-        self.assertEqual(len(self.written), 17)
+        self.assertEqual(len(self.written), 19)
 
     def test_formatting_preserved(self):
         a, b = load_workbook(_util.TEMPLATE), load_workbook(self.out)

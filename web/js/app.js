@@ -135,6 +135,20 @@
         box.innerHTML = '<b>ライブラリの手順書を開く</b>' + (r.items.length ? '<table class="t" style="margin-top:6px">' + r.items.map(function (m) { return '<tr><td lang="ja">' + esc(m.name) + '</td><td class="right"><button class="small primary" data-open-proc="' + m.id + '">開く</button></td></tr>'; }).join('') + '</table>' : '<p class="muted">ライブラリに手順書がまだありません。</p>');
         $$('[data-open-proc]', box).forEach(function (b) { b.addEventListener('click', function () { openProcedure(b.getAttribute('data-open-proc')); }); });
       });
+    },
+    // 完了ページ：確認結果報告書の作成ボタン。全手順の確認が終わって初めて表示したときは、作成するかを確認する
+    afterDone: function (appEl, s) {
+      var first = appEl.querySelector('.card'), box = document.createElement('div');
+      box.className = 'card rp-card'; box.id = 'sopReport';
+      box.innerHTML = '<div class="row spread"><div><b>確認結果報告書</b><div class="muted">パラメータシートの<b>設定値</b>と、作業中に入力した<b>確認結果</b>を成果物テンプレートに記入し、.xlsx で出力します。</div></div>' +
+        '<button class="primary" id="sopReportBtn">確認結果報告書を作成</button></div>';
+      appEl.insertBefore(box, first ? first.nextSibling : appEl.firstChild);
+      $('#sopReportBtn', box).addEventListener('click', function () { openReport(s); });
+      if (s.reportAskedAt) return;
+      s.reportAskedAt = new Date().toISOString(); SopApp.save();
+      showModal({ title: '確認結果報告書を作成しますか？', cls: 'info',
+        html: '<p>全 ' + s.steps.length + ' 手順の確認が完了しました。</p><p>パラメータシートの<b>設定値</b>と、作業中に入力した<b>確認結果</b>を成果物テンプレート（EC2サーバ構築 確認結果報告書など）に記入して出力できます。</p><p class="muted">あとからでも、この完了ページの「確認結果報告書を作成」ボタンで作成できます。</p>',
+        buttons: [{ label: '作成する', value: 'yes', cls: 'primary' }, { label: '今は作成しない' }] }).then(function (a) { if (a === 'yes') openReport(s); });
     }
   };
 
@@ -164,7 +178,8 @@
     var p1 = ED.paramRef ? Api.get('/api/library/' + ED.paramRef).then(function (ps) { ED.params = ps.parsed.params; }).catch(function () { ED.paramRef = ''; }) : Promise.resolve();
     Promise.all([p1, Api.get('/api/library/' + m.id + '/preview').then(function (r) { ED.sheets = r.sheets; })]).then(function () { drawEditor(el); }).catch(fail);
   }
-  function srcValue(it) { var s = it.source || { kind: 'input' }; return s.kind === 'param' ? 'param:' + s.key : s.kind; }
+  var KEYED = { param: ['パラメータ', 'パラメータシートの値（設定値）'], result: ['確認結果', '確認結果（作業中に入力した値）'], judge: ['判定', '判定（設定値と一致なら OK、異なれば NG）'] };
+  function srcValue(it) { var s = it.source || { kind: 'input' }; return KEYED[s.kind] ? s.kind + ':' + (s.key || '') : s.kind; }
   function drawEditor(el) {
     var m = ED.m, presets = Rules.presets();
     var psOpts = '<option value="">（参照しない）</option>' + (G.lib.param_sheet || []).map(function (p) { return '<option value="' + p.id + '"' + (p.id === ED.paramRef ? ' selected' : '') + '>' + esc(p.name) + '</option>'; }).join('');
@@ -172,7 +187,7 @@
       '<div class="row"><button data-act="backLib">← 戻る</button><button class="primary" id="edSave">保存</button></div></div>' +
       '<div class="row"><label>参照パラメータシート <select id="edParam">' + psOpts + '</select></label><button id="edAuto">ラベルで自動マッピング</button><button id="edRedetect">再検出</button>' +
       '<span class="muted" id="edStat"></span></div>' +
-      '<p class="muted">黄 = 作業入力、青 = パラメータシートの値、灰 = 記入しない（出力後に手で編集）。グリッドのセルをクリックすると該当項目へ移動、または検出項目を追加できます。</p>';
+      '<p class="muted">黄 = 作業入力、青 = パラメータシートの値（設定値）、緑 = 確認結果（作業中に入力した値）・判定（OK/NG）、灰 = 記入しない（出力後に手で編集）。「ラベルで自動マッピング」は、行ラベルがパラメータに対応する「確認結果」「実測値」列を確認結果に、「判定」列や OK/NG の選択肢を判定に割り当てます。グリッドのセルをクリックすると該当項目へ移動、または検出項目を追加できます。</p>';
     if (ED.sheets && ED.sheets.length) {
       h += '<div class="row" style="margin:6px 0">' + ED.sheets.map(function (s, i) { return '<button class="small' + (i === ED.sheet ? ' primary' : '') + '" data-sheet="' + i + '">' + esc(s.name) + '</button>'; }).join('') + '</div>';
       h += '<div class="grid-prev" id="gridPrev">' + gridHtml(ED.sheets[ED.sheet]) + '</div>';
@@ -182,9 +197,11 @@
       ED.items.map(function (it, i) {
         var r = it.rules || {}, sv = srcValue(it);
         var srcOpts = '<option value="input"' + (sv === 'input' ? ' selected' : '') + '>作業入力</option><option value="none"' + (sv === 'none' ? ' selected' : '') + '>記入しない（手動）</option><option value="fixed"' + (sv === 'fixed' ? ' selected' : '') + '>固定値</option><option value="evidence"' + (sv === 'evidence' ? ' selected' : '') + '>証跡画像（キー指定）</option>';
-        var keys = ED.params.map(function (p) { return p.key; });
-        if (sv.indexOf('param:') === 0 && keys.indexOf(sv.slice(6)) < 0) srcOpts += '<option value="' + esc(sv) + '" selected>パラメータ: ' + esc(sv.slice(6)) + '</option>';
-        srcOpts += ED.params.map(function (p) { return '<option value="param:' + esc(p.key) + '"' + (sv === 'param:' + p.key ? ' selected' : '') + '>パラメータ: ' + esc(p.label) + ' (' + esc(p.key) + ')</option>'; }).join('');
+        var keys = ED.params.map(function (p) { return p.key; }), m = /^(param|result|judge):(.*)$/.exec(sv);
+        if (m && keys.indexOf(m[2]) < 0) srcOpts += '<option value="' + esc(sv) + '" selected>' + KEYED[m[1]][0] + ': ' + esc(m[2]) + '</option>';
+        Object.keys(KEYED).forEach(function (k) {
+          if (ED.params.length) srcOpts += '<optgroup label="' + KEYED[k][1] + '">' + ED.params.map(function (p) { return '<option value="' + k + ':' + esc(p.key) + '"' + (sv === k + ':' + p.key ? ' selected' : '') + '>' + KEYED[k][0] + ': ' + esc(p.label) + ' (' + esc(p.key) + ')</option>'; }).join('') + '</optgroup>';
+        });
         return '<tr data-i="' + i + '"' + (ED.sel === it.id ? ' class="sel"' : '') + '><td class="mono nowrap">' + esc(it.sheet) + '!' + '<input type="text" data-f="cell" value="' + esc(it.cell) + '" style="width:58px"></td>' +
           '<td><input type="text" data-f="label" value="' + esc(it.label) + '" lang="ja"></td><td class="muted nowrap">' + esc(REASONS[it.reason] || it.reason || '') + '</td>' +
           '<td><select data-f="type">' + Object.keys(ITYPES).map(function (k) { return '<option value="' + k + '"' + (it.type === k ? ' selected' : '') + '>' + ITYPES[k] + '</option>'; }).join('') + '</select></td>' +
@@ -218,8 +235,9 @@
     return h + '</table>';
   }
   function updateEdStat() {
-    var n = ED.items.length, np = ED.items.filter(function (x) { return (x.source || {}).kind === 'param'; }).length, ni = ED.items.filter(function (x) { return (x.source || {}).kind === 'input'; }).length;
-    var s = $('#edCount'); if (s) s.textContent = '全 ' + n + ' 項目：パラメータ ' + np + '、作業入力 ' + ni + '、その他 ' + (n - np - ni);
+    function cnt(k) { return ED.items.filter(function (x) { return k.indexOf((x.source || {}).kind) >= 0; }).length; }
+    var n = ED.items.length, np = cnt(['param']), nr = cnt(['result', 'judge']), ni = cnt(['input']);
+    var s = $('#edCount'); if (s) s.textContent = '全 ' + n + ' 項目：パラメータ ' + np + '、確認結果・判定 ' + nr + '、作業入力 ' + ni + '、その他 ' + (n - np - nr - ni);
     var st = $('#edStat'); if (st) st.textContent = ED.dirty ? '● 未保存の変更があります' : '';
   }
   function edDirty() { ED.dirty = true; updateEdStat(); }
@@ -253,7 +271,8 @@
     else if (f === 'preset') it.rules.preset = t.value || null;
     else if (f === 'source') {
       it._manual = true;
-      it.source = t.value.indexOf('param:') === 0 ? { kind: 'param', key: t.value.slice(6) } : (t.value === 'fixed' ? { kind: 'fixed', value: '' } : { kind: t.value });
+      var km = /^(param|result|judge):(.*)$/.exec(t.value);
+      it.source = km ? { kind: km[1], key: km[2] } : (t.value === 'fixed' ? { kind: 'fixed', value: '' } : { kind: t.value });
       var fx = $('input[data-f=fixed]', tr); fx.disabled = t.value !== 'fixed' && t.value !== 'evidence'; fx.placeholder = t.value === 'evidence' ? '証跡キー' : ''; if (t.value === 'evidence') it.source = { kind: 'evidence', key: fx.value.trim() };
       var g = $('#gridPrev'); if (g) g.innerHTML = gridHtml(ED.sheets[ED.sheet]);
     }
@@ -410,7 +429,7 @@
     if (t.id === 'jobNew') { G.jobId = 'new'; drawJobForm(null); return; }
     if (t.hasAttribute('data-jt')) { G.jobTab = t.getAttribute('data-jt'); drawJob(); return; }
     if (t.id === 'jbEdit') return drawJobForm(J.job);
-    if (t.id === 'jbProc') return openProcedure(J.job.procedure_id);
+    if (t.id === 'jbProc') { G.procJob = J.job.id; return openProcedure(J.job.procedure_id); }   // 完了後の報告書作成で、この作業を既定にする
     if (t.id === 'jbDel') { if (confirm('作業「' + J.job.name + '」を削除しますか？')) Api.del('/api/jobs/' + J.job.id).then(function () { G.jobId = null; renderJobs(); }).catch(fail); }
   });
 
@@ -421,28 +440,35 @@
   function drawInputs() {
     var body = $('#jobBody');
     if (!J.template) { body.innerHTML = '<div class="card muted">この作業には成果物テンプレートが設定されていません。</div>'; return; }
-    var byId = itemsById(), res = J.resolved.filter(function (r) { return r.kind !== 'none' && r.kind !== 'evidence'; });
+    var byId = itemsById(), res = J.resolved.filter(function (r) { return r.kind === 'input' || r.kind === 'param' || r.kind === 'fixed'; });   // 確認結果・判定は作業の結果なので ⑤ で確認
     var inputs = res.filter(function (r) { return r.kind === 'input'; }), others = res.filter(function (r) { return r.kind !== 'input'; });
     function row(r) {
-      var it = byId[r.id] || {}, v = r.value == null ? '' : r.value, ctl;
+      var it = byId[r.id] || {}, v = r.kind === 'input' ? (r.input == null ? r.value : r.input) : r.value, ctl;
+      v = v == null ? '' : v;
+      var fb = r.fallback ? ' data-fb="' + esc(r.value) + '" title="空欄のときは手順実行の値（' + esc(r.fallback_source) + '）を成果物に記入します"' : '';
       if (r.kind !== 'input') ctl = '<input type="text" value="' + esc(v) + '" disabled lang="ja" data-ro="' + esc(r.id) + '">';
-      else if (it.type === 'dropdown') ctl = '<select data-in="' + esc(r.id) + '"><option value="">（未選択）</option>' + (it.options || []).map(function (o) { return '<option' + (o === v ? ' selected' : '') + '>' + esc(o) + '</option>'; }).join('') + '</select>';
-      else ctl = '<input type="text" data-in="' + esc(r.id) + '" value="' + esc(v) + '" lang="ja"' + (it.type === 'number' ? ' inputmode="decimal"' : '') + ' placeholder="' + esc(placeholderFor(it)) + '">';
-      return '<tr data-row="' + esc(r.id) + '"><td class="mono nowrap muted">' + esc(r.cell) + '</td><td lang="ja">' + esc(r.label) + ((it.rules || {}).required ? ' <span class="req" style="color:#dc2626">*</span>' : '') + '</td><td><span class="pill ' + r.kind + '">' + ({ param: 'パラメータ ' + (r.key || ''), fixed: '固定値', input: '入力' })[r.kind] + '</span></td><td class="w-val">' + ctl + '</td><td class="msg w-msg"></td></tr>';
+      else if (it.type === 'dropdown') ctl = '<select data-in="' + esc(r.id) + '"' + fb + '><option value="">' + (r.fallback ? '（手順実行の値：' + esc(r.value) + '）' : '（未選択）') + '</option>' + (it.options || []).map(function (o) { return '<option' + (o === v ? ' selected' : '') + '>' + esc(o) + '</option>'; }).join('') + '</select>';
+      else ctl = '<input type="text" data-in="' + esc(r.id) + '" value="' + esc(v) + '" lang="ja"' + (it.type === 'number' ? ' inputmode="decimal"' : '') + fb + ' placeholder="' + esc(r.fallback ? '手順実行の値：' + r.value : placeholderFor(it)) + '">';
+      return '<tr data-row="' + esc(r.id) + '"><td class="mono nowrap muted">' + esc(r.cell) + '</td><td lang="ja">' + esc(r.label) + ((it.rules || {}).required ? ' <span class="req" style="color:#dc2626">*</span>' : '') + '</td><td>' + kindPill(r) + '</td><td class="w-val">' + ctl + '</td><td class="msg w-msg"></td></tr>';
     }
     body.innerHTML = '<div class="card"><div class="row spread"><h3>作業入力 <span class="muted">(' + inputs.length + ')</span></h3><span id="inStat"></span></div>' +
       '<div class="tscroll"><table class="t" id="inTable"><tr><th>セル</th><th>項目</th><th>取得元</th><th>値</th><th>チェック</th></tr>' + inputs.map(row).join('') + '</table></div></div>' +
       '<div class="card"><h3>パラメータシート / 固定値から <span class="muted">(' + others.length + ')（同じルールでチェックし、パラメータシート自体の誤りも検出）</span></h3><div class="tscroll"><table class="t" id="roTable"><tr><th>セル</th><th>項目</th><th>取得元</th><th>値</th><th>チェック</th></tr>' + others.map(row).join('') + '</table></div></div>';
     validateAll();
   }
+  function kindPill(r) {
+    return '<span class="pill ' + r.kind + '">' + esc(({ param: 'パラメータ ' + (r.key || ''), fixed: '固定値', input: '入力', none: '記入しない', evidence: '証跡画像 ' + (r.key || ''),
+      result: '確認結果 ' + (r.key || ''), judge: '判定 ' + (r.key || '') })[r.kind] || r.kind) + '</span>';
+  }
   function placeholderFor(it) { var p = (it.rules || {}).preset, ps = Rules.presets(); return p && ps[p] ? '例: ' + ps[p].example : (it.type === 'number' ? '数値' : ''); }
   function validateAll() {
     var byId = itemsById(), bad = 0, total = 0;
     $$('#jobBody tr[data-row]').forEach(function (tr) {
-      var id = tr.getAttribute('data-row'), it = byId[id] || {}, ctl = $('[data-in],[data-ro]', tr), errs = Rules.validate(it, ctl.value);
+      var id = tr.getAttribute('data-row'), it = byId[id] || {}, ctl = $('[data-in],[data-ro]', tr);
+      var fb = !String(ctl.value).trim() && ctl.getAttribute('data-fb'), errs = Rules.validate(it, fb || ctl.value);   // 空欄で手順実行の値があれば、その値をチェック
       total++; if (errs.length) bad++;
       ctl.classList.toggle('invalid', errs.length > 0);
-      $('.msg', tr).innerHTML = errs.length ? '<span class="err">✕ ' + esc(errs.map(function (x) { return x.message; }).join('；')) + '</span>' : (String(ctl.value).trim() ? '<span class="okc">✓</span>' : '');
+      $('.msg', tr).innerHTML = errs.length ? '<span class="err">✕ ' + esc(errs.map(function (x) { return x.message; }).join('；')) + '</span>' : fb ? '<span class="okc">✓ 手順実行の値</span>' : (String(ctl.value).trim() ? '<span class="okc">✓</span>' : '');
     });
     var s = $('#inStat'); if (s) s.innerHTML = bad ? '<span class="err" style="font-size:13px">ルール違反 ' + bad + ' 件（全 ' + total + ' 項目）</span>' : '<span class="okc" style="font-size:13px">全 ' + total + ' 項目 チェック OK</span>';
   }
@@ -456,7 +482,7 @@
   function onInputChange(e) {
     var t = e.target; if (!t.hasAttribute('data-in') || !J) return;
     var id = t.getAttribute('data-in'); pendingInputs[id] = t.value; J.job.inputs[id] = t.value;
-    J.resolved.forEach(function (r) { if (r.id === id) r.value = t.value; });
+    J.resolved.forEach(function (r) { if (r.id === id) { r.input = t.value; r.value = t.value || (r.fallback ? t.getAttribute('data-fb') : ''); } });
     validateAll(); saveInputs();
   }
   $('#jobs').addEventListener('input', onInputChange);
@@ -629,11 +655,12 @@
       var filled = v.resolved.filter(function (r) { return r.kind !== 'none' && r.kind !== 'evidence' && String(r.value || '').trim(); }).length, evCells = v.resolved.filter(function (r) { return r.kind === 'evidence'; });
       body.innerHTML = '<div class="card"><div class="row spread"><h3>成果物出力</h3><div class="row"><button id="dvMap">マッピング編集</button><button id="dvPdf">作業入力値一覧 PDF</button><button id="dvKeyPdf" title="要求値・入力値・出力値だけの 1 枚もの">主要値一覧 PDF</button><button class="primary" id="dvExport">成果物を出力 .xlsx</button></div></div>' +
         '<p class="muted">パラメータシートの値と作業入力をお客様テンプレートの該当セルに書き込みます。テンプレートの書式（フォント・塗りつぶし・罫線・セル結合・列幅・入力規則）はそのまま保持されます。「記入しない」セルは変更しません。出力後、個別の記述は Excel で手作業で編集してください。</p>' +
+        '<p class="muted">取得元が「確認結果」のセルには作業中に入力した値（④ の最終値：手順実行の入力値・③ 実測値）を、「判定」のセルには設定値と一致すれば OK・異なれば NG を記入します。手順実行の値は ④ で紐付けた記録から取ります（手順実行の完了ページの「確認結果報告書を作成」からも出力できます）。</p>' +
         '<p><b>' + filled + '</b> セルに書き込みます' + (v.errors ? '。<span class="err" style="font-size:14px">うち ' + v.errors + ' 項目がチェック NG です（出力は可能）</span>' : '') + '。</p>' +
         '<div class="ev-xlsx" id="dvEv"><label class="nowrap"><input type="checkbox" id="dvEvOn" disabled> 証跡画像を挿入する</label> <select id="dvEvSrc" disabled><option value="">（読み込み中…）</option></select>' +
         '<div class="muted">手順実行の記録から画像を取り出し、末尾に「証跡」シートを追加して手順ごとに貼り付けます。マッピングで取得元を「証跡画像（キー指定）」にしたセル' + (evCells.length ? '（' + evCells.length + ' 個）' : '') + 'には、そのキーの最初の画像を配置します。</div></div>' +
         '<div class="tscroll"><table class="t" id="dvTable"><tr><th>セル</th><th>項目</th><th>取得元</th><th>書き込む値</th><th>チェック</th></tr>' + v.resolved.map(function (r) {
-          return '<tr><td class="mono nowrap">' + esc(r.sheet + '!' + r.cell) + '</td><td lang="ja">' + esc(r.label) + '</td><td><span class="pill ' + r.kind + '">' + ({ param: 'パラメータ ' + (r.key || ''), fixed: '固定値', input: '入力', none: '記入しない', evidence: '証跡画像 ' + (r.key || '') })[r.kind] + '</span></td><td lang="ja">' + esc(r.value) + '</td><td>' + (r.errors.length ? '<span class="err">' + esc(r.errors.map(function (x) { return x.message; }).join('；')) + '</span>' : (r.kind !== 'none' && r.kind !== 'evidence' && String(r.value || '').trim() ? '<span class="okc">✓</span>' : '')) + '</td></tr>';
+          return '<tr><td class="mono nowrap">' + esc(r.sheet + '!' + r.cell) + '</td><td lang="ja">' + esc(r.label) + '</td><td>' + kindPill(r) + '</td><td lang="ja">' + esc(r.value) + (r.fallback ? ' <span class="muted">（手順実行の値）</span>' : '') + '</td><td>' + (r.errors.length ? '<span class="err">' + esc(r.errors.map(function (x) { return x.message; }).join('；')) + '</span>' : (r.kind !== 'none' && r.kind !== 'evidence' && String(r.value || '').trim() ? '<span class="okc">✓</span>' : '')) + '</td></tr>';
         }).join('') + '</table></div></div>';
       Api.get('/api/sop/sessions').then(function (r) {
         if (stale(body, 'deliver') || !$('#dvEvSrc')) return;
@@ -669,6 +696,105 @@
       });
       $('#dvMap').addEventListener('click', function () { G.libView = { id: J.job.template_id }; setTab('library'); });
     }).catch(fail);
+  }
+
+  /* ================= 確認結果報告書（手順実行の完了ページから） ================= */
+  // 手順実行の記録 s から報告書を作る作業を選び（無ければ作成）、設定値／確認結果／判定を確認してから成果物 .xlsx を出力する
+  function openReport(s) {
+    (window.SopStore ? SopStore.flush() : Promise.resolve()).then(function () { return Promise.all([Api.get('/api/jobs'), loadLib()]); }).then(function (r) {
+      var procIds = (G.lib.procedure || []).filter(function (m) { return m.id === s.libId || m.original_name === s.docName; }).map(function (m) { return m.id; });
+      function rank(j) { return j.sop_key === s.key ? 3 : j.id === G.procJob ? 2 : procIds.indexOf(j.procedure_id) >= 0 ? 1 : 0; }
+      var jobs = r[0].items.filter(function (j) { return j.template_id; }).map(function (j, i) { return { j: j, i: i }; });
+      jobs.sort(function (a, b) { return rank(b.j) - rank(a.j) || a.i - b.i; });   // 関連の強い順、同じなら更新日時の新しい順
+      reportDialog(s, jobs.map(function (x) { return x.j; }));
+    }).catch(fail);
+  }
+  function reportDialog(s, jobs) {
+    var o = document.createElement('div'); o.className = 'modal-back'; o.id = 'modal';
+    o.innerHTML = '<div class="modal rp" role="dialog" aria-modal="true" aria-labelledby="modalTitle"><h3 id="modalTitle">確認結果報告書の作成</h3><div class="modal-body" id="rpBody"></div>' +
+      '<div class="modal-actions"><button class="primary" id="rpOut" disabled>報告書を出力 (.xlsx)</button><button id="rpCancel">キャンセル</button></div></div>';
+    document.body.appendChild(o);
+    var body = $('#rpBody', o), out = $('#rpOut', o), cur = null;   // cur = { id, p }（p = GET /api/jobs/:id/report）／ 作成フォームなら { create: true }
+    function close() { o.remove(); document.removeEventListener('keydown', onKey); }
+    function onKey(e) { if (e.key === 'Escape') close(); }
+    document.addEventListener('keydown', onKey);
+    o.addEventListener('click', function (e) { if (e.target === o || e.target.id === 'rpCancel') close(); });
+    function jobSelect(id) {
+      return '<div class="rp-job"><label class="nowrap" for="rpJob"><b>作業</b></label><select id="rpJob">' + jobs.map(function (j) {
+        return '<option value="' + esc(j.id) + '"' + (j.id === id ? ' selected' : '') + '>' + esc(j.name) + '（' + esc(j.server || '—') + '・' + esc(libName(j.template_id)) + '）</option>';
+      }).join('') + '<option value=""' + (id ? '' : ' selected') + '>＋ 新しい作業を作成</option></select></div>';
+    }
+    function load(id) {
+      cur = null; out.disabled = true; out.textContent = '報告書を出力 (.xlsx)';
+      if (!id) return drawCreate();
+      body.innerHTML = jobSelect(id) + '<p class="muted">集計しています…</p>';
+      Api.get('/api/jobs/' + encodeURIComponent(id) + '/report?sop=' + encodeURIComponent(s.key)).then(function (p) {
+        if (!o.isConnected) return;
+        cur = { id: id, p: p }; draw();
+      }).catch(function (e) { if (o.isConnected) body.innerHTML = jobSelect(id) + '<p class="err">' + esc(e.message) + '</p>'; });
+    }
+    function draw() {
+      var p = cur.p, sm = p.summary;
+      var head = p.header.map(function (h) {
+        var ctl = h.type === 'dropdown' && h.options.length
+          ? '<select data-rph="' + esc(h.id) + '"><option value="">（未選択）</option>' + h.options.map(function (x) { return '<option' + (x === h.value ? ' selected' : '') + '>' + esc(x) + '</option>'; }).join('') + '</select>'
+          : '<input type="text" data-rph="' + esc(h.id) + '" value="' + esc(h.value) + '" lang="ja"' + (h.fallback ? ' placeholder="' + esc(h.fallback) + '"' : '') + '>';
+        return '<tr><th lang="ja">' + esc(h.label) + (h.required ? ' <span class="req" style="color:#dc2626">*</span>' : '') + '</th><td>' + ctl +
+          (h.fallback ? '<div class="muted rp-fb">空欄のときは手順実行の値「' + esc(h.fallback) + '」（' + esc(h.fallback_source) + '）を記入します</div>' : '') + '</td></tr>';
+      }).join('');
+      var rows = p.rows.map(function (r) {
+        var pill = r.status === 'missing' ? '' : '<span class="pill ' + esc(r.status) + '">' + esc(r.judge || VSTAT[r.status] || '') + '</span>';
+        return '<tr class="' + (r.status === 'mismatch' ? 'mismatch' : r.status === 'missing' ? 'rp-miss' : '') + '"><td lang="ja">' + esc(r.label) + '</td>' +
+          '<td class="mono brk" lang="ja">' + (r.setting == null ? '<span class="muted">—</span>' : esc(r.setting)) + '</td>' +
+          '<td class="mono brk" lang="ja">' + (r.result == null ? '<span class="muted">—</span>' : String(r.result).trim() ? esc(r.result) + (r.result_source ? '<div class="muted rp-src">' + esc(r.result_source) + '</div>' : '') : '<span class="muted">未入力</span>') + '</td>' +
+          '<td class="nowrap">' + pill + '</td></tr>';
+      }).join('');
+      body.innerHTML = jobSelect(cur.id) +
+        '<p class="muted rp-info" lang="ja">テンプレート「' + esc(p.template.name) + '」・サーバ ' + esc(p.job.server || '—') + '・手順実行の記録「' + esc(s.docTitle || s.docName) + '」' +
+        (p.job.sop_key === s.key ? '' : '<br>出力時に、この手順実行の記録を作業「' + esc(p.job.name) + '」に紐付けます' + (p.job.sop_key ? '（現在は別の記録が紐付いています）' : '') + '。') + '</p>' +
+        (p.header.length ? '<h4>記入項目 <span class="muted">（① 作業入力。ここで入力した値は作業にも保存されます）</span></h4><table class="t rp-head">' + head + '</table>' : '') +
+        '<h4>設定値と確認結果 <span id="rpStat"><span class="pill match">一致 ' + sm.match + '</span> <span class="pill ' + (sm.mismatch ? 'mismatch' : 'none') + '">不一致 ' + sm.mismatch + '</span> <span class="pill missing">未入力 ' + sm.missing + '</span></span></h4>' +
+        (sm.mismatch ? '<div class="vl-alert">設定値と異なる確認結果が ' + sm.mismatch + ' 項目あります（判定 NG として記入します）。</div>' : '') +
+        (sm.missing ? '<div class="rp-note">確認結果が未入力の項目が ' + sm.missing + ' 項目あります（報告書では空欄になります）。</div>' : '') +
+        (p.rows.length ? '<div class="tscroll"><table class="t rp-rows"><tr><th>項目</th><th>設定値<div class="muted">パラメータシート</div></th><th>確認結果<div class="muted">作業中に入力した値</div></th><th>判定</th></tr>' + rows + '</table></div>'
+          : '<p class="err">テンプレートに「確認結果」「判定」の欄がマッピングされていません。テンプレート編集で取得元を「確認結果」「判定」にしてください（「ラベルで自動マッピング」で自動設定できます）。</p>') +
+        (p.evidence ? '<label class="nowrap rp-ev"><input type="checkbox" id="rpEv" checked> 証跡画像を挿入する（' + p.evidence + ' 枚）</label>' : '');
+      out.disabled = false;
+    }
+    function drawCreate() {
+      cur = { create: true };
+      var tpls = G.lib.excel_template || [], pss = G.lib.param_sheet || [];
+      if (!tpls.length) { body.innerHTML = jobSelect('') + '<p class="err">成果物テンプレートがライブラリにありません。先にテンプレートライブラリで登録してください。</p>'; return; }
+      body.innerHTML = jobSelect('') + '<p>この手順実行の記録から報告書を作るための作業を作成します。</p><div class="formgrid">' +
+        '<label>作業名<input type="text" id="rpName" value="' + esc((s.docTitle || s.docName || '') + ' 確認結果') + '" lang="ja"></label>' +
+        '<label>成果物テンプレート' + sel('rpTpl', tpls, tpls[0].id) + '</label>' +
+        '<label>パラメータシート' + sel('rpPs', pss, (pss[0] || {}).id, '（使用しない）') + '</label>' +
+        '<label>サーバ（パラメータシートの列）<select id="rpSrv"></select></label></div>';
+      function fillSrv() { var ps = pss.filter(function (x) { return x.id === $('#rpPs', o).value; })[0]; $('#rpSrv', o).innerHTML = (ps ? ps.parsed.servers : []).map(function (x) { return '<option>' + esc(x) + '</option>'; }).join(''); }
+      fillSrv(); $('#rpPs', o).addEventListener('change', fillSrv);
+      out.textContent = '作業を作成'; out.disabled = false;
+    }
+    o.addEventListener('change', function (e) { if (e.target.id === 'rpJob') load(e.target.value); });
+    out.addEventListener('click', function () {
+      if (!cur) return;
+      out.disabled = true;
+      if (cur.create) {
+        var b = { name: $('#rpName', o).value.trim() || '確認結果報告書', template_id: $('#rpTpl', o).value, param_sheet_id: $('#rpPs', o).value || null, server: $('#rpSrv', o).value || '',
+          command_set_id: null, procedure_id: s.libId || null, sop_key: s.key };
+        Api.post('/api/jobs', b).then(function (j) { jobs.unshift(j); G.jobId = j.id; toast('作業を作成しました：' + j.name); load(j.id); }).catch(function (e) { out.disabled = false; fail(e); });
+        return;
+      }
+      var inputs = {};
+      $$('[data-rph]', o).forEach(function (el) { var id = el.getAttribute('data-rph'), h = cur.p.header.filter(function (x) { return x.id === id; })[0]; if (h && el.value !== h.value) inputs[id] = el.value; });
+      var ev = $('#rpEv', o), id = cur.id, upd = { sop_key: s.key };
+      if (Object.keys(inputs).length) upd.inputs = inputs;
+      Api.put('/api/jobs/' + encodeURIComponent(id), upd).then(function () {
+        close();
+        download('/api/jobs/' + encodeURIComponent(id) + '/deliverable.xlsx' + (ev && ev.checked ? '?sop=' + encodeURIComponent(s.key) : ''));
+        toast('確認結果報告書を出力しています…');
+      }).catch(function (e) { out.disabled = false; fail(e); });
+    });
+    load(jobs.length ? jobs[0].id : '');
   }
 
   /* ================= 起動 ================= */

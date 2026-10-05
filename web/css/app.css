@@ -122,6 +122,7 @@ td.w-msg{min-width:120px}
 .pill.param{background:#dbeafe;color:#1e40af}.pill.input{background:#dcfce7;color:#166534}.pill.fixed{background:#fef3c7;color:#92400e}.pill.none{background:var(--surface-3);color:var(--muted)}
 .pill.match{background:#dcfce7;color:#166534}.pill.mismatch{background:#fee2e2;color:#991b1b;font-weight:700}.pill.missing{background:#fef3c7;color:#92400e}.pill.no_expected{background:var(--surface-3);color:var(--muted)}
 .pill.evidence{background:#ede9fe;color:#5b21b6}
+.pill.result,.pill.judge{background:#ccfbf1;color:#115e59}
 #cmpStat{display:inline-flex;flex-wrap:wrap;gap:4px;align-items:center}
 
 /* ---- 作業：一覧・サブタブ ---- */
@@ -166,6 +167,7 @@ textarea.tpl{min-height:54px;font-size:12.5px}
 .grid-prev td.hit{background:#fef9c3;outline:2px solid #f59e0b;outline-offset:-2px}
 .grid-prev td.hit.param{background:#dbeafe;outline-color:#3b82f6}
 .grid-prev td.hit.none{background:var(--surface-3);outline-color:var(--border-strong)}
+.grid-prev td.hit.result,.grid-prev td.hit.judge{background:#ccfbf1;outline-color:#14b8a6}
 .grid-prev td.sel{outline:3px solid #dc2626}
 
 /* ---- 手順実行（v1 の見た目をトーンだけ揃える） ---- */
@@ -260,3 +262,22 @@ textarea.tpl{min-height:54px;font-size:12.5px}
 .btnlink.primary{background:var(--primary);border-color:var(--primary);color:#fff}
 .btnlink:focus-visible{outline:2px solid var(--primary);outline-offset:2px}
 #sop-app input.sop-key{width:150px;max-width:100%}
+
+/* 確認結果報告書（手順実行の完了ページ → 作成ダイアログ） */
+.rp-card{border-left:4px solid var(--primary)}
+.rp-card .muted{margin-top:3px}
+.modal.rp{width:min(880px,100%)}
+.modal.rp h4{margin:14px 0 6px;font-size:13.5px}
+.modal.rp h4 .muted{font-weight:400;font-size:12px}
+.rp-job{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface-2);min-width:0}
+.rp-job select{flex:1 1 360px;min-width:0;max-width:100%}
+.rp-info{margin:8px 0 0;overflow-wrap:anywhere}
+table.rp-head{width:100%}
+table.rp-head th{position:static;width:150px;text-align:left;vertical-align:top;padding-top:10px;background:var(--surface-2)}
+table.rp-head input[type=text],table.rp-head select{width:100%;max-width:420px}
+.rp-fb{font-size:12px;margin-top:3px}
+table.rp-rows{width:100%}
+table.rp-rows tr.rp-miss>td{background:var(--warn-soft)}
+.rp-src{font-family:inherit;font-size:11.5px}
+.rp-note{margin-top:8px;padding:7px 12px;border:1px solid #fcd34d;border-left:4px solid #f59e0b;border-radius:var(--radius-sm);background:var(--warn-soft);color:var(--warn);font-size:13px}
+.rp-ev{display:inline-block;margin-top:10px}

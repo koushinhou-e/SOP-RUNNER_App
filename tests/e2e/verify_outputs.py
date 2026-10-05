@@ -32,8 +32,9 @@ check(ws["C9"].value == "web01.example.local" and ws["C10"].value == "i-01234567
 check(ws["C12"].value == 2 and ws["C13"].value == 8 and ws["C19"].value == 30, "交付物：数字单元格写为数值")
 check(ws["C4"].value.strftime("%Y-%m-%d") == "2026-10-03" and ws["C4"].number_format == "yyyy/mm/dd", "交付物：作業日写为日期并保留 yyyy/mm/dd 格式")
 check(ws["C3"].value == "サンプル基盤構築" and ws["C5"].value == "山田 太郎" and ws["C6"].value == "佐藤 花子" and ws["C7"].value == "MNG-0042", "交付物：作业输入已写入（含手动新增的 C7）")
-check(all(ws["D%d" % r].value == "OK" for r in range(9, 20)) and ws["C21"].value == "合格", "交付物：確認結果/総合判定")
-check(ws["E9"].value is None and ws["C22"].value == "（　　　）", "交付物：不填/未填的单元格保持原样（留给手动编辑）")
+check(ws["D9"].value == "web01.example.local" and ws["D11"].value == "t3.medium" and ws["D12"].value == 2 and ws["D13"].value == "8 GiB", "交付物：確認結果 = ③ 的实测值（数字写为数值）")
+check(ws["E11"].value == "NG" and all(ws["E%d" % r].value == "OK" for r in range(9, 20) if r != 11) and ws["C21"].value == "合格", "交付物：判定（与设定值一致 OK / 不一致 NG）/ 総合判定")
+check(ws["F9"].value is None and ws["C22"].value == "（　　　）", "交付物：不填/未填的单元格保持原样（留给手动编辑）")
 diffs = [c.coordinate for row in wt.iter_rows() for c in row if style_sig(c) != style_sig(ws[c.coordinate])]
 check(not diffs, "交付物：所有单元格样式（字体/底色/边框/数字格式/对齐）与模板一致 %s" % (diffs[:5] if diffs else ""))
 check(sorted(map(str, wt.merged_cells.ranges)) == sorted(map(str, ws.merged_cells.ranges)), "交付物：合并单元格一致")
@@ -74,13 +75,21 @@ xmedia = [n for n in xn if n.startswith("xl/media/")]
 drawings = [n for n in xn if re.match(r"xl/drawings/drawing\d+\.xml$", n)]
 check(len(xmedia) == 3 and len(drawings) == 2, "xlsx：xl/media に画像 3 枚（証跡シート 2 + セル配置 1）、drawing 2 個 %s" % xmedia)
 dw = {n: zx.read(n).decode("utf-8") for n in drawings}
-anchored = [n for n, x in dw.items() if re.search(r"<(xdr:)?from><(xdr:)?col>4</(xdr:)?col><(xdr:)?colOff>0</(xdr:)?colOff><(xdr:)?row>8</", x)]
-check(len(anchored) == 1, "xlsx：マッピング（構築結果!E9）の位置に画像を配置")
+anchored = [n for n, x in dw.items() if re.search(r"<(xdr:)?from><(xdr:)?col>5</(xdr:)?col><(xdr:)?colOff>0</(xdr:)?colOff><(xdr:)?row>8</", x)]
+check(len(anchored) == 1, "xlsx：マッピング（構築結果!F9）の位置に画像を配置")
 check("image/png" in zx.read("[Content_Types].xml").decode("utf-8") or 'Extension="png"' in zx.read("[Content_Types].xml").decode("utf-8"), "xlsx：Content_Types に png")
 de = load_workbook(X)
 check("証跡" in de.sheetnames and de["証跡"]["A3"].value.startswith("手順 3：") and "EC2 詳細画面のスクリーンショット" in de["証跡"]["A4"].value, "xlsx：「証跡」シートに手順名・説明")
 dws = de["構築結果"]
 check(dws["C9"].value == "web01.example.local" and not [c.coordinate for row in wt.iter_rows() for c in row if style_sig(c) != style_sig(dws[c.coordinate])], "xlsx：証跡あり出力でも値・書式は通常出力と同じ")
+
+# ---- 確認結果報告書（手順実行の完了ページから出力）----
+RP = os.path.join(OUT, "report.xlsx")
+rws = load_workbook(RP)["構築結果"]
+check([rws.cell(row=11, column=c).value for c in range(3, 6)] == ["t3.large", "t3.medium", "NG"] and rws["D9"].value == "web01.example.local" and rws["E9"].value == "OK",
+      "確認結果報告書：設定値（パラメータシート）／確認結果（作業中の入力値）／判定")
+with zipfile.ZipFile(RP) as zr:
+    check(len([n for n in zr.namelist() if n.startswith("xl/media/")]) == 3, "確認結果報告書：証跡画像を挿入")
 
 # ---- LibreOffice で PDF → PNG に描画（目視確認用、screenshots/ にコピー） ----
 SOFFICE = shutil.which("soffice") or shutil.which("libreoffice")

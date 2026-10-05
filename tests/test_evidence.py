@@ -70,16 +70,16 @@ class FillEvidenceTest(unittest.TestCase):
             out = os.path.join(tmp, "out.xlsx")
             written = fill_template(_util.TEMPLATE, items, {"構築結果!C9": "web01"}, out, evidence=ev)
             self.assertIn("構築結果!E9", written)
-            z = zipfile.ZipFile(out)
-            media = [n for n in z.namelist() if n.startswith("xl/media/")]
-            self.assertEqual(len(media), 3)
-            self.assertTrue(all(z.read(m)[:4] == b"\x89PNG" for m in media))
-            drawings = {n: z.read(n).decode("utf-8") for n in z.namelist() if re.match(r"xl/drawings/drawing\d+\.xml$", n)}
-            self.assertEqual(len(drawings), 2)
-            self.assertTrue(any(re.search(r"<(xdr:)?col>4</(xdr:)?col><(xdr:)?colOff>0</(xdr:)?colOff><(xdr:)?row>8<", x) for x in drawings.values()))
-            for n in drawings:
-                rels = z.read(n.replace("drawings/", "drawings/_rels/") + ".rels").decode("utf-8")
-                self.assertIn("relationships/image", rels)
+            with zipfile.ZipFile(out) as z:       # 閉じないと Windows では一時フォルダを削除できない
+                media = [n for n in z.namelist() if n.startswith("xl/media/")]
+                self.assertEqual(len(media), 3)
+                self.assertTrue(all(z.read(m)[:4] == b"\x89PNG" for m in media))
+                drawings = {n: z.read(n).decode("utf-8") for n in z.namelist() if re.match(r"xl/drawings/drawing\d+\.xml$", n)}
+                self.assertEqual(len(drawings), 2)
+                self.assertTrue(any(re.search(r"<(xdr:)?col>4</(xdr:)?col><(xdr:)?colOff>0</(xdr:)?colOff><(xdr:)?row>8<", x) for x in drawings.values()))
+                for n in drawings:
+                    rels = z.read(n.replace("drawings/", "drawings/_rels/") + ".rels").decode("utf-8")
+                    self.assertIn("relationships/image", rels)
             wb = load_workbook(out)
             self.assertEqual(wb.sheetnames[-1], "証跡")
             ws = wb["証跡"]

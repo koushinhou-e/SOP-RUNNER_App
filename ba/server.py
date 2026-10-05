@@ -338,6 +338,8 @@ class Handler(BaseHTTPRequestHandler):
             if n == 3 and parts[2] == "values.pdf" and method == "POST":
                 self._json()
                 return self._send(200, S.export_values_pdf(job))
+            if n == 3 and parts[2] == "report" and method == "GET":
+                return self._send(200, S.report_preview(job, (qs.get("sop") or [None])[0]))
             if n == 3 and parts[2] == "deliverable.xlsx":
                 out, _ = S.export_deliverable(job, (qs.get("sop") or [None])[0])
                 return self._file(out, os.path.basename(out))

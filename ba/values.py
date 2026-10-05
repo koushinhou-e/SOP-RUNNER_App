@@ -39,7 +39,7 @@ def norm_time(v):
     return ""
 
 
-def _as_date(v):
+def as_date(v):
     m = _DATE.match(rules.norm(v))
     if not m:
         return None
@@ -52,7 +52,7 @@ def same_value(a, b):
     """2 つの入力値が同じとみなせるか（judge と同じ正規化 + 日付の表記ゆれ 2026/10/03 = 2026-10-03）。"""
     if cmpmod.judge(a, b) == "match":
         return True
-    da, db = _as_date(a), _as_date(b)
+    da, db = as_date(a), as_date(b)
     if da and db:
         return da[:3] == db[:3] and (da[3] is None or db[3] is None or da[3] == db[3])
     return False
@@ -149,7 +149,7 @@ def evaluate(groups):
             status = "ok"
         rows.append({
             "key": g["key"], "id": g["gk"], "label": g["label"], "expected": g["expected"], "has_expected": g["has_expected"],
-            "final": final["value"] if final else "", "final_source": final["source"] if final else "", "final_at": final["at"] if final else "",
+            "final": final["value"] if final else "", "final_raw": fv, "final_source": final["source"] if final else "", "final_at": final["at"] if final else "",
             "status": status, "status_label": STATUS_LABEL[status], "conflict": conflict, "errors": errors, "entries": ents,
             "problem": status == "mismatch" or conflict,
         })
