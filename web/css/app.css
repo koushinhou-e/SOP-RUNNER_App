@@ -281,3 +281,23 @@ table.rp-rows tr.rp-miss>td{background:var(--warn-soft)}
 .rp-src{font-family:inherit;font-size:11.5px}
 .rp-note{margin-top:8px;padding:7px 12px;border:1px solid #fcd34d;border-left:4px solid #f59e0b;border-radius:var(--radius-sm);background:var(--warn-soft);color:var(--warn);font-size:13px}
 .rp-ev{display:inline-block;margin-top:10px}
+
+/* 手順修正（参考画像・パラメータ参照・照合） */
+#sop-app.authoring #btnStart,#sop-app.authoring label:has([data-bind=executor]){display:none}
+.au-bar{border-left:4px solid var(--primary)}
+.au-picker{display:flex;flex-wrap:wrap;align-items:center;gap:8px 14px;min-width:0}
+.au-picker label{display:inline-flex;align-items:center;gap:6px;font-size:12.5px}
+.au-picker select{max-width:260px;min-width:0}
+.au-ref{border:1px dashed var(--border-strong);border-radius:var(--radius-sm);padding:8px 10px;background:var(--surface-2);outline:none;min-width:0}
+.au-ref:focus-within,.au-ref.over{border-color:var(--primary);background:var(--primary-soft)}
+.au-thumbs,.au-view{display:flex;flex-wrap:wrap;gap:10px;margin:6px 0}
+.au-th,.au-vf{margin:0;position:relative;max-width:240px;display:flex;flex-direction:column;gap:4px}
+.au-th img,.au-vf img{max-width:240px;max-height:160px;border:1px solid var(--border);border-radius:4px;background:#fff;cursor:zoom-in;object-fit:contain}
+.au-view .au-vf{max-width:420px}.au-view .au-vf img{max-width:420px;max-height:300px}
+.au-vf figcaption{font-size:12px;color:var(--text-2)}
+.au-cap{width:100%;font-size:12px;padding:3px 6px}
+.au-th button.danger{position:absolute;top:4px;right:4px;padding:0 6px;line-height:1.5}
+.au-pref .row{flex-wrap:wrap}.au-pref select{max-width:100%;min-width:220px}
+.au-prev{margin-top:6px;padding:6px 10px;border-left:3px solid #cbd5e1;background:var(--surface-2);font-size:13px;overflow-wrap:anywhere}
+.au-cmpbox{border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px 12px;background:var(--surface-2);margin-bottom:10px;min-width:0}
+table.au-cmp{width:100%;margin-top:8px;background:var(--surface)}

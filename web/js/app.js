@@ -23,11 +23,12 @@
   /* ================= タブ ================= */
   function setTab(t) {
     G.tab = t;
+    var view = t === 'sopedit' ? 'sop' : t;      // 手順修正は手順実行と同じ画面で、モードだけ違う（進捗は別々に保持）
     $$('#nav [data-tab]').forEach(function (b) { b.classList.toggle('on', b.getAttribute('data-tab') === t); });
-    $$('.tab').forEach(function (s) { s.classList.toggle('hidden', s.id !== 'tab-' + t); });
+    $$('.tab').forEach(function (s) { s.classList.toggle('hidden', s.id !== 'tab-' + view); });
     if (t === 'library') renderLibrary();
     if (t === 'jobs') renderJobs();
-    if (t === 'sop' && window.SopApp && !SopApp.state()) SopApp.render();   // ホーム表示中なら手順書一覧を最新に（サンプル読み込み後など）
+    if (view === 'sop' && window.SopApp) SopApp.setMode(t === 'sopedit' ? 'author' : 'run');   // 再描画（ホームの手順書一覧を最新に）
   }
   $('#nav').addEventListener('click', function (e) { var b = e.target.closest('[data-tab]'); if (b) setTab(b.getAttribute('data-tab')); });
   $('#btnQuit').addEventListener('click', function () {
@@ -55,7 +56,7 @@
         if (!list.length) h += '<p class="muted">まだありません</p>';
         else h += '<div class="tscroll"><table class="t lib-' + t + '"><tr><th>名前</th><th>ファイル</th><th>概要</th><th>更新日時</th><th></th></tr>' + list.map(function (m) {
           return '<tr data-id="' + m.id + '"><td lang="ja"><b>' + esc(m.name) + '</b></td><td class="muted" lang="ja">' + esc(m.original_name || '') + '</td><td>' + esc(summary(m)) + '</td><td class="nowrap muted">' + esc((m.updated || '').replace('T', ' ')) + '</td><td class="nowrap right">' +
-            (t === 'procedure' ? '<button class="small primary" data-act="openSop" data-id="' + m.id + '">手順実行で開く</button> ' : '<button class="small primary" data-act="openItem" data-id="' + m.id + '">' + (t === 'param_sheet' ? '表示' : '編集') + '</button> ') +
+            (t === 'procedure' ? '<button class="small primary" data-act="openSop" data-id="' + m.id + '">手順実行で開く</button> <button class="small" data-act="editSop" data-id="' + m.id + '">手順修正で開く</button> ' : '<button class="small primary" data-act="openItem" data-id="' + m.id + '">' + (t === 'param_sheet' ? '表示' : '編集') + '</button> ') +
             '<button class="small" data-act="rename" data-id="' + m.id + '">名前変更</button> <button class="small danger" data-act="delItem" data-id="' + m.id + '">削除</button></td></tr>';
         }).join('') + '</table></div>';
         h += '</div>';
@@ -78,7 +79,7 @@
     if (m.type === 'excel_template') { var it = m.items || []; return '検出項目 ' + it.length + '、パラメータ割当 ' + it.filter(function (x) { return (x.source || {}).kind === 'param'; }).length; }
     if (m.type === 'param_sheet') { var p = m.parsed || {}; return 'パラメータ ' + (p.params || []).length + ' × サーバ ' + (p.servers || []).join(', '); }
     if (m.type === 'command_set') return 'コマンド ' + (m.templates || []).length + ' 件';
-    if (m.type === 'procedure') return Math.round((m.size || 0) / 1024) + ' KB';
+    if (m.type === 'procedure') return m.kind === 'steps' ? '手順テンプレート（' + (m.steps || []).length + ' 手順）' : Math.round((m.size || 0) / 1024) + ' KB';
     return '';
   }
   function bindUpload(box) {
@@ -107,7 +108,9 @@
       Api.post('/api/library/command_set', { name: 'コマンドテンプレート集 ' + new Date().toLocaleDateString(), templates: SAMPLE_CMDS }).then(function (m) { G.libView = { id: m.id }; renderLibrary(); }).catch(fail);
     } else if (act === 'pickCmdJson') { $('#cmdJson').click();
     } else if (act === 'openSop') {
-      openProcedure(id);
+      G.procJob = null; openProcedure(id);
+    } else if (act === 'editSop') {
+      G.procJob = null; openProcedure(id, 'author');
     } else if (act === 'backLib') { G.libView = null; renderLibrary(); }
   });
   $('#library').addEventListener('click', function (e) { if (e.target.id === 'btnSamples') Api.post('/api/samples').then(function (r) { toast('サンプルを ' + r.items.length + ' 件読み込みました'); renderLibrary(); }).catch(fail); });
@@ -117,8 +120,10 @@
     { title: 'メモリ (GiB)', kind: 'linux', checks: 'memory_gib', template: "ssh -n -o BatchMode=yes -o ConnectTimeout=10 {{ssh_user}}@{{private_ip}} 'free -g'" }
   ];
 
-  function openProcedure(id) {
+  function openProcedure(id, mode) {
     Api.get('/api/library/' + id).then(function (m) {
+      if (m.kind === 'steps') { setTab(mode === 'author' ? 'sopedit' : 'sop'); return SopAuthor.openTemplate(m, mode === 'author' ? 'author' : 'run'); }   // ファイルのない手順テンプレート
+      if (mode === 'author') { setTab('sopedit'); return SopAuthor.openForEdit(id); }
       return Api.blob('/api/library/' + id + '/file').then(function (b) {
         setTab('sop');
         if (window.SopEvidence) SopEvidence.openFromLibrary(id);
@@ -132,8 +137,8 @@
       box.innerHTML = '<b>ライブラリの手順書を開く</b> <span class="muted">読み込み中…</span>';
       var drop = appEl.querySelector('#drop'); appEl.insertBefore(box, drop ? drop.nextSibling : null);
       Api.get('/api/library?type=procedure').then(function (r) {
-        box.innerHTML = '<b>ライブラリの手順書を開く</b>' + (r.items.length ? '<table class="t" style="margin-top:6px">' + r.items.map(function (m) { return '<tr><td lang="ja">' + esc(m.name) + '</td><td class="right"><button class="small primary" data-open-proc="' + m.id + '">開く</button></td></tr>'; }).join('') + '</table>' : '<p class="muted">ライブラリに手順書がまだありません。</p>');
-        $$('[data-open-proc]', box).forEach(function (b) { b.addEventListener('click', function () { openProcedure(b.getAttribute('data-open-proc')); }); });
+        box.innerHTML = '<b>ライブラリの手順書を開く</b>' + (r.items.length ? '<table class="t" style="margin-top:6px">' + r.items.map(function (m) { return '<tr><td lang="ja">' + esc(m.name) + (m.kind === 'steps' ? ' <span class="muted">（手順テンプレート）</span>' : '') + '</td><td class="right"><button class="small primary" data-open-proc="' + m.id + '">開く</button></td></tr>'; }).join('') + '</table>' : '<p class="muted">ライブラリに手順書がまだありません。</p>');
+        $$('[data-open-proc]', box).forEach(function (b) { b.addEventListener('click', function () { G.procJob = null; openProcedure(b.getAttribute('data-open-proc')); }); });
       });
     },
     // 完了ページ：確認結果報告書の作成ボタン。全手順の確認が終わって初めて表示したときは、作成するかを確認する
@@ -702,7 +707,7 @@
   // 手順実行の記録 s から報告書を作る作業を選び（無ければ作成）、設定値／確認結果／判定を確認してから成果物 .xlsx を出力する
   function openReport(s) {
     (window.SopStore ? SopStore.flush() : Promise.resolve()).then(function () { return Promise.all([Api.get('/api/jobs'), loadLib()]); }).then(function (r) {
-      var procIds = (G.lib.procedure || []).filter(function (m) { return m.id === s.libId || m.original_name === s.docName; }).map(function (m) { return m.id; });
+      var procIds = (G.lib.procedure || []).filter(function (m) { return m.id === s.libId || m.id === s.tplId || m.original_name === s.docName; }).map(function (m) { return m.id; });
       function rank(j) { return j.sop_key === s.key ? 3 : j.id === G.procJob ? 2 : procIds.indexOf(j.procedure_id) >= 0 ? 1 : 0; }
       var jobs = r[0].items.filter(function (j) { return j.template_id; }).map(function (j, i) { return { j: j, i: i }; });
       jobs.sort(function (a, b) { return rank(b.j) - rank(a.j) || a.i - b.i; });   // 関連の強い順、同じなら更新日時の新しい順

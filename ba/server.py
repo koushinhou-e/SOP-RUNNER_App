@@ -269,6 +269,12 @@ class Handler(BaseHTTPRequestHandler):
             if n == 2 and parts[1] == "commands_preview" and method == "POST":
                 b = self._json()
                 return self._send(200, {"commands": S.preview_commands(b.get("templates") or [], b.get("param_sheet_id"), b.get("server"), b.get("globals"))})
+            if n == 2 and parts[1] == "procedure_template" and method == "POST":
+                b = self._json()
+                return self._send(200, S.save_procedure_template(b.get("name"), b.get("steps"), b.get("doc_title"), b.get("seq"), b.get("param_ref")))
+            if n == 3 and parts[2] == "steps" and method == "POST":
+                b = self._json()
+                return self._send(200, S.save_procedure_template(b.get("name"), b.get("steps"), b.get("doc_title"), b.get("seq"), b.get("param_ref"), item_id=parts[1]))
             if n >= 2:
                 iid = parts[1]
                 if n == 2 and method == "GET":

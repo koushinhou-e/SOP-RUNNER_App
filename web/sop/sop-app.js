@@ -4,6 +4,7 @@
   'use strict';
   var PREFIX = 'sopRunner:v1:';
   var S = null;           // 当前会话状态
+  var MODE = 'run', SLOT = { run: null, author: null };   // 'author' = 手順修正（進捗は保存しない）
   var app = document.getElementById('sop-app');
   var hdr = document.getElementById('sop-hdr');
 
@@ -20,7 +21,7 @@
   }
 
   /* ---------- 存储 ---------- */
-  function save() { if (!S) return; S.updatedAt = nowIso(); SopStore.save(S); }
+  function save() { if (!S) return; S.updatedAt = nowIso(); if (MODE !== 'author') SopStore.save(S); }
   function load(key) { return SopStore.load(key); }
   function listSessions() {
     var out = [];
@@ -52,7 +53,7 @@
     if (window.SopHooks && SopHooks.onImport) SopHooks.onImport(file);
     file.arrayBuffer().then(function (buf) {
       var u8 = new Uint8Array(buf), hash = hashBytes(u8), key = PREFIX + file.name + ':' + hash;
-      var old = load(key);
+      var old = MODE === 'author' ? null : load(key);
       if (old && confirm('この文書の保存済みの進捗があります（' + countDone(old) + '/' + old.steps.length + ' 手順確認済み）。\nOK = 前回の続きから再開／キャンセル = 再解析して上書き')) { openSession(old); save(); render(); toast('進捗を復元しました'); return; }
       return SopParser.parseDocx(buf).then(function (parsed) {
         if (!parsed.steps.length) { toast('手順を検出できませんでした'); return; }
@@ -125,6 +126,7 @@
 
   /* ---------- 首页 ---------- */
   function renderHome() {
+    if (MODE === 'author' && window.SopHooks && SopHooks.authorHome) { SopHooks.authorHome(app); return; }
     var ss = listSessions();
     var h = '<div class="drop" id="drop"><h2>Word 手順書（.docx）をここにドロップ</h2><p class="muted">または</p><button class="primary" data-act="pick">.docx ファイルを選択</button>' +
       '<input type="file" id="fileDocx" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" class="hidden">' +
@@ -206,7 +208,7 @@
     m += '<div class="sec" lang="ja">' + esc(st.section) + '</div><div class="stitle"><span class="muted">手順 ' + (S.view + 1) + ' / ' + n + '</span>　<span lang="ja">' + esc(st.title) + '</span></div>';
     if (st.context) m += '<div class="ctx" lang="ja">' + esc(st.context) + '</div>';
     m += '<div class="lbl">作業内容</div><div class="content" lang="ja">' + (renderContent(st.content) || '<span class="muted">（なし）</span>') + '</div>';
-    if (st.expected) m += '<div class="lbl">期待結果</div><div class="expected" lang="ja">' + renderContent(st.expected) + '</div>';
+    if (st.expected) m += '<div class="lbl">期待結果</div><div class="expected" lang="ja">' + renderContent(window.SopHooks && SopHooks.resolveText ? SopHooks.resolveText(st.expected) : st.expected) + '</div>';
     if (st.inputs.length) {
       m += '<div class="lbl">記録（' + st.inputs.length + ' 項目）</div><div class="inputs">';
       st.inputs.forEach(function (inp) {
@@ -268,6 +270,7 @@
     else if (S.phase === 'done' && S.view === 'done') renderDone();
     else if (S.phase === 'done' && S.view == null) { S.view = 'done'; renderDone(); }
     else renderRun();
+    if (window.SopHooks && SopHooks.afterRender) SopHooks.afterRender(app, S, MODE);
     window.scrollTo && window.scrollTo(0, 0);
   }
 
@@ -353,6 +356,8 @@
   window.addEventListener('dragover', function (e) { e.preventDefault(); });
   window.addEventListener('drop', function (e) { e.preventDefault(); if (app.offsetParent !== null && !S && e.dataTransfer && e.dataTransfer.files[0] && !e.target.closest('#drop')) importDocx(e.dataTransfer.files[0]); });
 
-  window.SopApp = { state: function () { return S; }, importFile: importDocx, render: render, save: save, refreshGate: refreshGate, home: function () { S = null; render(); } }; // 便于调试/测试
+  window.SopApp = { state: function () { return S; }, importFile: importDocx, render: render, save: save, refreshGate: refreshGate, home: function () { S = null; render(); }, mode: function () { return MODE; },
+    setMode: function (m) { if (m !== MODE) { SLOT[MODE] = S; MODE = m; S = SLOT[m]; } render(); },
+    open: function (s) { openSession(s); save(); render(); } }; // 便于调试/测试
   SopStore.init().then(render);
 })();
