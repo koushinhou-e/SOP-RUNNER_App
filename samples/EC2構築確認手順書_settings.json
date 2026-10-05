@@ -1,0 +1,125 @@
+{
+  "docName": "EC2構築確認手順書_sample.docx",
+  "steps": [
+    {
+      "index": 0,
+      "title": "記録: 作業日・作業者・確認者",
+      "items": [],
+      "inputKeys": [
+        {
+          "label": "作業日",
+          "key": "work_date"
+        },
+        {
+          "label": "作業者",
+          "key": "worker"
+        }
+      ]
+    },
+    {
+      "index": 2,
+      "title": "対象インスタンスの基本情報を確認する。",
+      "items": [],
+      "inputKeys": [
+        {
+          "label": "インスタンスID",
+          "key": "instance_id"
+        },
+        {
+          "label": "インスタンスタイプ",
+          "key": "instance_type"
+        },
+        {
+          "label": "プライベートIP",
+          "key": "private_ip"
+        }
+      ]
+    },
+    {
+      "index": 3,
+      "title": "AMI とサブネットを確認する。",
+      "items": [],
+      "inputKeys": [
+        {
+          "label": "AMI ID",
+          "key": "ami_id"
+        },
+        {
+          "label": "サブネットID",
+          "key": "subnet_id"
+        }
+      ]
+    },
+    {
+      "index": 4,
+      "title": "セキュリティグループを確認する。",
+      "items": [],
+      "inputKeys": [
+        {
+          "label": "セキュリティグループ",
+          "key": "security_group_id"
+        }
+      ]
+    },
+    {
+      "index": 5,
+      "title": "EC2 コンソールの詳細画面で、インスタンスの状態が running であることを確認する。",
+      "items": [
+        {
+          "id": "ev_img_ec2",
+          "desc": "EC2 詳細画面のスクリーンショット",
+          "key": "img_ec2"
+        }
+      ],
+      "inputKeys": []
+    },
+    {
+      "index": 6,
+      "title": "サーバへSSH接続し、ホスト名を確認する。",
+      "items": [],
+      "inputKeys": [
+        {
+          "label": "ホスト名",
+          "key": "hostname"
+        }
+      ]
+    },
+    {
+      "index": 7,
+      "title": "OS のバージョンを確認する。",
+      "items": [],
+      "inputKeys": [
+        {
+          "label": "OS",
+          "key": "os"
+        }
+      ]
+    },
+    {
+      "index": 8,
+      "title": "vCPU 数とメモリ容量を確認する。",
+      "items": [],
+      "inputKeys": [
+        {
+          "label": "vCPU",
+          "key": "vcpu"
+        },
+        {
+          "label": "メモリ",
+          "key": "memory_gib"
+        }
+      ]
+    },
+    {
+      "index": 9,
+      "title": "ルートボリュームのサイズを確認する。",
+      "items": [],
+      "inputKeys": [
+        {
+          "label": "EBSサイズ",
+          "key": "ebs_size_gib"
+        }
+      ]
+    }
+  ]
+}

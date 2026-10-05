@@ -5,6 +5,7 @@
 """
 import html
 import os
+import pathlib
 import shutil
 import subprocess
 import sys
@@ -106,6 +107,65 @@ def build_html(meta, rows, for_browser=False):
     }
 
 
+KEY_COLUMNS = [("項目名", "21%"), ("要求値（パラメータシート）", "22%"), ("入力値", "21%"), ("出力値（実測）", "21%"), ("判定", "10%")]
+
+_KEY_CSS = """
+@page { size: A4 portrait; margin: 12mm; }
+.sheet { max-width: 186mm; }
+td { padding: 1.6mm 2.2mm; font-size: 10pt; }
+td.no { white-space: nowrap; padding-left: 1mm; padding-right: 1.5mm; }
+td.v { font-family: Consolas, "MS Gothic", monospace; font-size: 9.5pt; }
+td.v.final { font-weight: 700; }
+.io { display: block; color: #ab091e; font-size: 7.5pt; font-weight: 700; }
+"""
+
+
+def build_keyvalues_html(meta, rows, for_browser=False):
+    """「主要値一覧」：パラメータシートの項目ごとに 要求値 / 入力値 / 出力値 / 判定 だけを並べた 1 枚もの（A4 縦）。
+
+    rows: values.key_rows() の結果。手順の経過・入力元ごとの値・日時などは載せない。
+    """
+    e = lambda s: html.escape("" if s is None else str(s))
+    dash = '<span style="color:#9aa5b1">—</span>'
+    s = meta.get("summary") or {}
+    chips = ['<span class="chip">項目 %d</span>' % len(rows)]
+    if s.get("match"):
+        chips.append('<span class="chip good">一致 %d</span>' % s["match"])
+    if s.get("mismatch"):
+        chips.append('<span class="chip bad">不一致 %d</span>' % s["mismatch"])
+    if s.get("io_differs"):
+        chips.append('<span class="chip bad">入力値と出力値が異なる %d</span>' % s["io_differs"])
+    body = []
+    for n, r in enumerate(rows, 1):
+        st = r["status"]
+        j = '<span class="j %s">%s</span>' % (st, e("—" if st == "no_expected" else r["status_label"]))
+        body.append('<tr class="%s"><td class="no">%d</td><td>%s%s</td><td class="v">%s</td><td class="v%s">%s</td><td class="v%s">%s%s</td><td>%s</td></tr>' % (
+            "problem" if st == "mismatch" or r["io_differs"] else "", n, e(r["label"]),
+            ('<div class="key">%s</div>' % e(r["key"])) if r.get("key") and r["key"] != r["label"] else "",
+            e(r["expected"]) or dash,
+            "" if r["output"] else " final", e(r["input"]) or dash,
+            " final" if r["output"] else "", e(r["output"]) or dash, '<span class="io">≠ 入力値</span>' if r["io_differs"] else "",
+            j))
+    if not body:
+        body.append('<tr><td colspan="6" style="text-align:center;color:#7b8794;padding:8mm">入力値・出力値のある項目がありません</td></tr>')
+    bar = ('<div class="bar"><button type="button" id="printBtn">印刷 / PDF に保存</button><span>用紙：A4 縦。印刷ダイアログで「PDF に保存」を選ぶと PDF になります。</span></div>'
+           '<script src="/js/print.js"></script>') if for_browser else ""
+    ths = "".join('<th style="width:%s">%s</th>' % (w, c) for c, w in KEY_COLUMNS)
+    return """<!DOCTYPE html>
+<html lang="ja"><head><meta charset="utf-8"><title>主要値一覧 - %(title)s</title><style>%(css)s</style></head>
+<body>%(bar)s<div class="sheet">
+<div class="head"><div><h1 class="title">主要値一覧</h1><div class="sub">%(job)s</div></div>
+<div class="meta"><div><b>サーバ名</b><span>%(server)s</span></div><div><b>作業日</b><span>%(date)s</span></div><div><b>作業者</b><span>%(op)s</span></div></div></div>
+<div class="chips">%(chips)s</div>
+<table><thead><tr><th style="width:5%%">No</th>%(ths)s</tr></thead><tbody>%(body)s</tbody></table>
+<div class="foot"><span>入力値：作業者が入力した値（① 作業入力・手順実行）。出力値：コマンド結果などの実測値（③）。判定は出力値（無ければ入力値）を要求値と照合。</span><span>出力日時 %(gen)s</span></div>
+</div></body></html>""" % {
+        "title": e(meta.get("server") or meta.get("job_name") or ""), "css": _CSS + _KEY_CSS, "bar": bar, "job": e(meta.get("job_name") or ""),
+        "server": e(meta.get("server") or "—"), "date": e(meta.get("work_date") or "—"), "op": e(meta.get("operator") or "—"),
+        "chips": "".join(chips), "ths": ths, "body": "".join(body), "gen": e(meta.get("generated_at") or ""),
+    }
+
+
 # ---------------- ブラウザ（Edge / Chrome / Chromium）の検出 ----------------
 _APP_PATHS = r"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\%s"
 _LINUX_NAMES = ["microsoft-edge", "microsoft-edge-stable", "msedge", "google-chrome", "google-chrome-stable", "chromium", "chromium-browser", "chrome"]
@@ -182,31 +242,40 @@ def browser_label(path):
 
 
 def html_to_pdf(browser, html_path, pdf_path, timeout=90, run=subprocess.run):
-    """ヘッドレスのブラウザで HTML を PDF に印刷する。失敗時は RuntimeError。"""
+    """ヘッドレスのブラウザで HTML を PDF に印刷する。失敗時は RuntimeError。
+
+    ブラウザには一時フォルダの短いパス（page.html → out.pdf）だけを渡し、できた PDF を pdf_path へ移す。
+    出力先が深いフォルダ・長い作業名だと、フルパスが Windows の 260 文字制限を超えてブラウザが
+    ファイルを開けず（ERR_FILE_NOT_FOUND）、% や # などの URL 上の特殊文字の影響も受けるため。
+    """
     if os.path.exists(pdf_path):
         os.remove(pdf_path)
-    profile = tempfile.mkdtemp(prefix="ba-pdf-")      # 起動中の Edge とプロファイルを共有しない（共有すると既存のウィンドウに渡されて終わる）
-    url = "file:///" + os.path.abspath(html_path).replace("\\", "/").lstrip("/").replace(" ", "%20").replace("#", "%23")
+    work = tempfile.mkdtemp(prefix="ba-pdf-")
+    page, tmp_pdf = os.path.join(work, "page.html"), os.path.join(work, "out.pdf")
+    shutil.copyfile(html_path, page)
     args = [browser, "--headless", "--disable-gpu", "--no-first-run", "--no-default-browser-check", "--disable-extensions",
             "--disable-sync", "--disable-background-networking", "--disable-component-update", "--disable-domain-reliability",
-            "--disable-client-side-phishing-detection", "--no-pings", "--user-data-dir=" + profile,
-            "--no-pdf-header-footer", "--print-to-pdf-no-header", "--print-to-pdf=" + os.path.abspath(pdf_path), url]
+            "--disable-client-side-phishing-detection", "--no-pings",
+            "--user-data-dir=" + os.path.join(work, "profile"),     # 起動中の Edge とプロファイルを共有しない（共有すると既存のウィンドウに渡されて終わる）
+            "--no-pdf-header-footer", "--print-to-pdf-no-header", "--print-to-pdf=" + tmp_pdf, pathlib.Path(page).as_uri()]
     kw = {"stdout": subprocess.DEVNULL, "stderr": subprocess.PIPE, "timeout": timeout}
     if os.name == "nt":
         kw["creationflags"] = 0x08000000      # CREATE_NO_WINDOW
     try:
-        p = run(args, **kw)
-    except subprocess.TimeoutExpired:
-        raise RuntimeError("ブラウザの PDF 出力がタイムアウトしました（%d 秒）" % timeout)
-    except OSError as ex:
-        raise RuntimeError("ブラウザを起動できませんでした：%s" % ex)
+        try:
+            p = run(args, **kw)
+        except subprocess.TimeoutExpired:
+            raise RuntimeError("ブラウザの PDF 出力がタイムアウトしました（%d 秒）" % timeout)
+        except OSError as ex:
+            raise RuntimeError("ブラウザを起動できませんでした：%s" % ex)
+        ok = os.path.exists(tmp_pdf) and os.path.getsize(tmp_pdf) > 0
+        if ok:
+            with open(tmp_pdf, "rb") as f:
+                ok = f.read(5) == b"%PDF-"
+        if not ok:
+            err = (getattr(p, "stderr", b"") or b"").decode("utf-8", "replace").strip().splitlines()
+            raise RuntimeError("PDF が作成されませんでした（終了コード %s）%s" % (getattr(p, "returncode", "?"), ("：" + err[-1][:200]) if err else ""))
+        shutil.move(tmp_pdf, pdf_path)
     finally:
-        shutil.rmtree(profile, ignore_errors=True)
-    ok = os.path.exists(pdf_path) and os.path.getsize(pdf_path) > 0
-    if ok:
-        with open(pdf_path, "rb") as f:
-            ok = f.read(5) == b"%PDF-"
-    if not ok:
-        err = (getattr(p, "stderr", b"") or b"").decode("utf-8", "replace").strip().splitlines()
-        raise RuntimeError("PDF が作成されませんでした（終了コード %s）%s" % (getattr(p, "returncode", "?"), ("：" + err[-1][:200]) if err else ""))
+        shutil.rmtree(work, ignore_errors=True)
     return pdf_path

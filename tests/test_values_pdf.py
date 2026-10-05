@@ -132,6 +132,45 @@ class AllValuesTest(ServiceBase):
         self.assertFalse(by["work_date"]["problem"])
 
 
+class KeyValuesTest(ServiceBase):
+    """主要値一覧：パラメータシートの項目ごとに 要求値 / 入力値 / 出力値 だけ。"""
+
+    def setUp(self):
+        super().setUp()
+        sess = session({"i2": "佐藤 花子", "i3": "t3.large"}, at={"i3": "2026-10-03T00:00:00.000Z"}, keys={"i2": "worker", "i3": "instance_type"})
+        self.S.store.sop_put(sess["key"], sess)
+        self.S.update_job(self.job["id"], {"sop_key": sess["key"], "inputs": {self.items["C5"]: "山田 太郎"},
+                                           "compare": {"instance_type": {"actual": "t3.medium"}, "private_ip": {"actual": "192.0.2.11"}}})
+
+    def test_key_rows(self):
+        rows = {r["key"]: r for r in valmod.key_rows(self.values()[0]["rows"])}
+        self.assertEqual(set(rows), {"instance_type", "private_ip"})     # パラメータシート外（作業者）・未入力の項目は載せない
+        it = rows["instance_type"]                                        # 入力値（手順実行）と出力値（③）が異なる
+        self.assertEqual((it["expected"], it["input"], it["output"], it["status"], it["io_differs"]), ("t3.large", "t3.large", "t3.medium", "mismatch", True))
+        ip = rows["private_ip"]                                           # 出力値だけ
+        self.assertEqual((ip["input"], ip["output"], ip["status"], ip["io_differs"]), ("", "192.0.2.11", "match", False))
+        s = valmod.key_summary(list(rows.values()))
+        self.assertEqual((s["total"], s["match"], s["mismatch"], s["io_differs"]), (2, 1, 1, 1))
+
+    def test_html_and_pdf_fallback(self):
+        job = self.S.store.job_get(self.job["id"])
+        h = self.S.keyvalues_html(job)
+        self.assertIn("主要値一覧", h)
+        self.assertIn("A4 portrait", h)
+        for s in ("t3.large", "t3.medium", "192.0.2.11", "≠ 入力値"):
+            self.assertIn(s, h)
+        for s in ("入力日時", "手順 1：記録", "佐藤 花子"):                  # 経過・入力元・パラメータシート外の値は載せない
+            self.assertNotIn(s, h)
+        self.assertNotIn("printBtn", h)
+        self.assertIn('id="printBtn"', self.S.keyvalues_html(job, for_browser=True))
+        with mock.patch.dict(os.environ, {report.ENV_BROWSER: "none"}):
+            out = self.S.export_values_pdf(job, kind="keyvalues")
+        self.assertIsNone(out["pdf"])
+        self.assertIn("主要値一覧", out["html"])
+        with open(os.path.join(out["dir"], out["html"]), encoding="utf-8") as f:
+            self.assertIn("t3.medium", f.read())
+
+
 class HelpersTest(unittest.TestCase):
     def test_norm_time(self):
         self.assertEqual(valmod.norm_time("2026-10-03T10:00:00"), "2026-10-03 10:00:00")
@@ -294,8 +333,12 @@ class HtmlToPdfTest(unittest.TestCase):
         self.assertEqual(a[0], "/x/msedge")
         self.assertIn("--headless", a)
         self.assertTrue(any(x.startswith("--user-data-dir=") for x in a))
-        self.assertTrue(a[-1].startswith("file:///") and a[-1].endswith("a%20b%23.html"))
+        # ブラウザには一時フォルダの短いパスを渡す（長いパス・特殊文字のファイル名でも開けるように）
+        self.assertTrue(a[-1].startswith("file:///") and a[-1].endswith("/page.html"))
+        self.assertNotIn(self.tmp, [x.split("=", 1)[-1][:len(self.tmp)] for x in a[1:]])
         self.assertEqual(seen["kw"]["timeout"], 7)
+        with open(self.pdf, "rb") as f:                                   # 指定の場所へ移されている
+            self.assertEqual(f.read(5), b"%PDF-")
 
     def test_timeout_and_no_output(self):
         def slow(args, **kw):
