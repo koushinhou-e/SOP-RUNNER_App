@@ -200,6 +200,13 @@ class ApiFlowTest(unittest.TestCase):
     def test_4_samples_endpoint(self):
         st, r = self.req("POST", "/api/samples")
         self.assertEqual((st, len(r["items"])), (200, 4))
+        # 手順書サンプルはパラメータシートと同じ EC2 項目を扱い、入力欄のキーと証跡画像の要求が設定済み
+        pr = [m for m in r["items"] if m["type"] == "procedure"][0]
+        keys = {k["key"] for s in pr["evidence"]["steps"] for k in s["inputKeys"]}
+        params = {p["key"] for m in r["items"] if m["type"] == "param_sheet" for p in m["parsed"]["params"]}
+        self.assertTrue({"instance_id", "instance_type", "private_ip", "hostname"} <= keys)
+        self.assertTrue(keys - {"work_date", "worker"} <= params)
+        self.assertEqual([i["key"] for s in pr["evidence"]["steps"] for i in s["items"]], ["img_ec2"])
 
     def test_5_hardening(self):
         from ba.server import App
@@ -224,6 +231,20 @@ class ApiFlowTest(unittest.TestCase):
         self.assertIn(key, keys)
         self.assertEqual(self.req("DELETE", "/api/sop/sessions/" + quote(key, safe=""))[0], 200)
         self.assertNotIn(key, [x["key"] for x in self.req("GET", "/api/sop/sessions")[1]["items"]])
+
+    def test_6_error_response_drains_body(self):
+        # 本体を読まずに拒否する場合（トークン不一致など）も本体を読み捨ててから応答する。
+        # 未読のまま閉じると RST になり、ブラウザは応答を受け取れず「Failed to fetch」になっていた。
+        body = json.dumps({"pad": "x" * 3000000}).encode()
+        c = http.client.HTTPConnection("127.0.0.1", self.port, timeout=20)
+        c.request("PUT", "/api/sop/sessions/k", body=body, headers={"X-Token": "old-token", "Content-Type": "application/json"})
+        r = c.getresponse()
+        self.assertEqual((r.status, json.loads(r.read())["error"]), (403, "invalid token"))
+        self.assertNotEqual((r.getheader("Connection") or "").lower(), "close")      # 接続はそのまま再利用できる
+        c.request("GET", "/api/ping", headers={"X-Token": self.app.token})
+        r = c.getresponse()
+        self.assertEqual((r.status, json.loads(r.read())), (200, {"ok": True}))
+        c.close()
 
     def test_9_no_outbound_network(self):
         self.assertEqual(ATTEMPTS, [], "outbound network attempts: %r" % ATTEMPTS)

@@ -12,6 +12,7 @@ from . import rules
 from . import values as valmod
 from . import xlsx_detect
 from .store import Store, now, safe_name
+from .store import _lock as store_lock
 
 APP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SAMPLES = os.path.join(APP_DIR, "samples")
@@ -131,6 +132,10 @@ class Service:
 
     def update_job(self, job_id, b):
         """作業の更新。inputs / compare は差分マージし、値が変わった項目に入力日時を記録する（古い JSON はそのまま）。"""
+        with store_lock:    # 読み込み〜保存を 1 つの操作にする（同時の PUT で片方の更新が失われないように）
+            return self._update_job(job_id, b)
+
+    def _update_job(self, job_id, b):
         job = self.store.job_get(job_id)
         for k in self.JOB_FIELDS:
             if k in b:
@@ -195,12 +200,24 @@ class Service:
         meta["summary"] = valmod.summary(rows)
         return report.build_html(meta, rows, for_browser=for_browser)
 
-    def export_values_pdf(self, job, timeout=90):
-        """作業入力値一覧の PDF を exports/ に作る。ブラウザが無い・失敗した場合は pdf=None（印刷用 HTML で代替）。"""
-        base = "%s_%s_作業入力値一覧_%s" % (job.get("name", "job"), job.get("server", ""), datetime.datetime.now().strftime("%Y%m%d-%H%M%S"))
+    def keyvalues_html(self, job, for_browser=False):
+        """主要値一覧：パラメータシートの項目ごとの 要求値 / 入力値 / 出力値 だけ。"""
+        v = self.all_values(job)
+        rows = valmod.key_rows(v["rows"])
+        meta = self.values_meta(job, v["rows"])
+        meta["summary"] = valmod.key_summary(rows)
+        return report.build_keyvalues_html(meta, rows, for_browser=for_browser)
+
+    REPORTS = {"values": ("作業入力値一覧", "values_html"), "keyvalues": ("主要値一覧", "keyvalues_html")}
+
+    def export_values_pdf(self, job, timeout=90, kind="values"):
+        """作業入力値一覧（kind="values"）／主要値一覧（kind="keyvalues"）の PDF を exports/ に作る。
+        ブラウザが無い・失敗した場合は pdf=None（印刷用 HTML で代替）。"""
+        title, builder = self.REPORTS[kind]
+        base = "%s_%s_%s_%s" % (job.get("name", "job"), job.get("server", ""), title, datetime.datetime.now().strftime("%Y%m%d-%H%M%S"))
         html_path = self.store.export_path(base + ".html")
         with open(html_path, "w", encoding="utf-8") as f:
-            f.write(self.values_html(job))
+            f.write(getattr(self, builder)(job))
         out = {"html": os.path.basename(html_path), "pdf": None, "browser": None, "error": None,
                "dir": os.path.dirname(html_path)}
         browser = report.find_browser()
@@ -307,7 +324,12 @@ class Service:
         xt = self.upload("excel_template", "構築結果報告書_template_sample.xlsx", rd("構築結果報告書_template_sample.xlsx"))
         xt, _ = self.auto_map(xt["id"], ps["id"])
         made.append(xt)
-        made.append(self.upload("procedure", "Webサーバ定期パッチ適用手順書.docx", rd("Webサーバ定期パッチ適用手順書.docx")))
+        # パラメータシート・テンプレートと同じ EC2 項目を確認する手順書。入力欄のキーと証跡画像の要求を設定済みにしておく
+        # （手順実行で開くと自動適用され、④ 最終値チェック・主要値一覧 PDF で ③ の実測値と突き合わせられる）
+        pr = self.upload("procedure", "EC2構築確認手順書_sample.docx", rd("EC2構築確認手順書_sample.docx"))
+        with open(os.path.join(SAMPLES, "EC2構築確認手順書_settings.json"), encoding="utf-8") as f:
+            pr = self.store.lib_update(pr["id"], {"evidence": json.load(f)})
+        made.append(pr)
         with open(os.path.join(SAMPLES, "command_templates_sample.json"), encoding="utf-8") as f:
             cs = json.load(f)
         made.append(self.create_command_set(cs["name"], cs["templates"]))

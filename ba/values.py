@@ -156,6 +156,45 @@ def evaluate(groups):
     return rows
 
 
+def _latest(entries):
+    return max(entries, key=lambda e: (e["at"] or "", SRC_PRIORITY[e["type"]])) if entries else None
+
+
+def key_rows(rows):
+    """「主要値一覧」用：パラメータシートの項目ごとに 要求値 / 入力値 / 出力値 だけを 1 行にまとめる。
+
+    入力値 = 作業者が入力した値（① 作業入力・手順実行の入力値）の最新、出力値 = ③ の実測値（コマンド結果）の最新。
+    判定は出力値（無ければ入力値）を要求値と照合する。入力値も出力値も無い項目は含めない。
+    """
+    out = []
+    for r in rows:
+        if not r["has_expected"]:
+            continue
+        i = _latest([e for e in r["entries"] if e["type"] in ("input", "runner")])
+        o = _latest([e for e in r["entries"] if e["type"] == "compare"])
+        if not i and not o:
+            continue
+        iv = i.get("raw", i["value"]) if i else ""
+        ov = o.get("raw", o["value"]) if o else ""
+        status = cmpmod.judge(r["expected"], ov or iv)
+        out.append({
+            "key": r["key"], "label": r["label"], "expected": r["expected"],
+            "input": i["value"] if i else "", "input_source": i["source"] if i else "",
+            "output": o["value"] if o else "",
+            "status": status, "status_label": STATUS_LABEL[status],
+            "io_differs": bool(i and o and not same_value(iv, ov)),
+        })
+    return out
+
+
+def key_summary(krows):
+    s = {"total": len(krows), "match": 0, "mismatch": 0, "missing": 0, "no_expected": 0, "io_differs": 0}
+    for r in krows:
+        s[r["status"]] += 1
+        s["io_differs"] += 1 if r["io_differs"] else 0
+    return s
+
+
 def summary(rows):
     s = {"total": len(rows), "entered": 0, "match": 0, "mismatch": 0, "conflict": 0, "missing": 0, "no_expected": 0, "invalid": 0, "ok": 0, "problems": 0}
     for r in rows:

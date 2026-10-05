@@ -25,6 +25,7 @@ CSP = ("default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline';
        "connect-src 'self'; font-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
 MAX_UPLOAD = 50 * 1024 * 1024
 MAX_IMAGE = 20 * 1024 * 1024
+MAX_DRAIN = 8 * 1024 * 1024     # エラー応答の前に読み捨てる本体の上限（これより大きければ接続を閉じる）
 
 
 class _Server(ThreadingHTTPServer):
@@ -112,8 +113,8 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Security-Policy", CSP)
         for k, v in (headers or {}).items():
             self.send_header(k, v)
-        if not getattr(self, "_body_read", True) and (self.headers.get("Content-Length") or "0").strip() not in ("", "0"):
-            # 本体を読まないハンドラの場合、残りのバイトが次のリクエストとして解釈されないよう接続を閉じる
+        if not getattr(self, "_body_read", True) and not self._drain():
+            # 読み捨てられない本体（大きすぎる・長さ不正）は、次のリクエストとして解釈されないよう接続を閉じる
             self.close_connection = True
             if not any(k.lower() == "connection" for k in (headers or {})):
                 self.send_header("Connection", "close")
@@ -141,6 +142,28 @@ class Handler(BaseHTTPRequestHandler):
             raise HttpError(413, too_large)
         self._body_read = True
         return self.rfile.read(n) if n else b""
+
+    def _drain(self):
+        """読まれなかった本体を読み捨てる。読み捨てられれば True。
+
+        未読のデータを残したままソケットを閉じると OS が RST を送り、ブラウザはエラー応答を受け取れずに
+        「Failed to fetch」になる（例：トークン不一致の PUT）。小さな本体は読み捨ててから応答する。
+        """
+        try:
+            n = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            return False
+        if n == 0:
+            return True
+        if n < 0 or n > MAX_DRAIN:
+            return False
+        while n > 0:
+            chunk = self.rfile.read(min(n, 65536))
+            if not chunk:
+                return False
+            n -= len(chunk)
+        self._body_read = True
+        return True
 
     def _json(self):
         b = self._body()
@@ -193,9 +216,8 @@ class Handler(BaseHTTPRequestHandler):
                 raise HttpError(405, "method not allowed")
             return self._static(unquote(u.path))
         except HttpError as e:
-            # 本体を読まずに拒否した場合、残りのバイトが次のリクエストとして解釈されないよう接続を閉じる
-            self.close_connection = True
-            self._send(e.code, {"error": str(e)}, headers={"Connection": "close"})
+            # 本体を読まずに拒否した場合は _send() が読み捨てる（できなければ接続を閉じる）
+            self._send(e.code, {"error": str(e)})
         except KeyError as e:
             self._send(404, {"error": "not found: %s" % e})
         except ValueError as e:
@@ -308,6 +330,11 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(200, S.all_values(job))
             if n == 3 and parts[2] == "values.html" and method == "GET":
                 return self._send(200, S.values_html(job, for_browser=True), "text/html; charset=utf-8")
+            if n == 3 and parts[2] == "keyvalues.html" and method == "GET":
+                return self._send(200, S.keyvalues_html(job, for_browser=True), "text/html; charset=utf-8")
+            if n == 3 and parts[2] == "keyvalues.pdf" and method == "POST":
+                self._json()
+                return self._send(200, S.export_values_pdf(job, kind="keyvalues"))
             if n == 3 and parts[2] == "values.pdf" and method == "POST":
                 self._json()
                 return self._send(200, S.export_values_pdf(job))

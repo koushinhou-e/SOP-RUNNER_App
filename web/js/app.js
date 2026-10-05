@@ -27,6 +27,7 @@
     $$('.tab').forEach(function (s) { s.classList.toggle('hidden', s.id !== 'tab-' + t); });
     if (t === 'library') renderLibrary();
     if (t === 'jobs') renderJobs();
+    if (t === 'sop' && window.SopApp && !SopApp.state()) SopApp.render();   // ホーム表示中なら手順書一覧を最新に（サンプル読み込み後など）
   }
   $('#nav').addEventListener('click', function (e) { var b = e.target.closest('[data-tab]'); if (b) setTab(b.getAttribute('data-tab')); });
   $('#btnQuit').addEventListener('click', function () {
@@ -532,7 +533,8 @@
     cmpStat(); queueCmp(key);
   });
 
-  function flushAll() { return Promise.all([flushInputs(), flushCompare()]); }
+  // 順番に保存する（同時に送るとサーバ側で同じ作業 JSON の読み書きが重なり、片方の更新が失われうる）
+  function flushAll() { return flushInputs().then(flushCompare); }
 
   /* ---------- 共通：ダイアログ ---------- */
   // opts: { title, html, cls, buttons: [{ label, value, cls, href }] } → 押したボタンの value（Esc / 背景クリックは ''）
@@ -574,7 +576,7 @@
       body.innerHTML = '<div class="card"><div class="row spread"><h3>最終値の整合チェック</h3><div class="row"><span id="vlStat">' +
         '<span class="pill ' + (sm.mismatch ? 'mismatch' : 'none') + '">不一致 ' + sm.mismatch + '</span> <span class="pill ' + (sm.conflict ? 'mismatch' : 'none') + '">食い違い ' + sm.conflict + '</span> ' +
         '<span class="pill match">一致 ' + sm.match + '</span> <span class="pill missing">未入力 ' + sm.missing + '</span></span>' +
-        '<button class="primary" id="vlPdf">作業入力値一覧 PDF</button></div></div>' +
+        '<button id="vlPdf">作業入力値一覧 PDF</button><button class="primary" id="vlKeyPdf" title="要求値・入力値・出力値だけの 1 枚もの">主要値一覧 PDF</button></div></div>' +
         '<p class="muted">パラメータシートの期待値（要求値）、① 作業入力、③ 実測値、手順実行の入力値（キーを設定した項目）を同じキーでまとめ、最終値を ③ と同じ判定ルールで照合します。同じ項目に入力元ごとに異なる値があれば「食い違い」として赤く表示します。最終値は入力日時が最も新しい値です。</p>' +
         '<div class="vl-bind"><label class="nowrap" for="vlSop"><b>手順実行の記録</b></label><select id="vlSop"><option value="">（紐付けない）</option>' +
         sessions.map(function (s) { return '<option value="' + esc(s.key) + '"' + (s.key === J.job.sop_key ? ' selected' : '') + '>' + esc(sessionLabel(s)) + '</option>'; }).join('') + '</select>' +
@@ -593,22 +595,27 @@
       function bind(key) { Api.put('/api/jobs/' + J.job.id, { sop_key: key || null }).then(function (r) { J.job = r.job; toast(key ? '手順実行の記録を紐付けました' : '紐付けを解除しました'); drawValues(); }).catch(fail); }
       $('#vlSop').addEventListener('change', function (e) { bind(e.target.value); });
       if (cand) $('#vlBindCand').addEventListener('click', function () { bind(cand.key); });
-      $('#vlPdf').addEventListener('click', function (e) { makeValuesPdf(e.target); });
+      $('#vlPdf').addEventListener('click', function (e) { makeValuesPdf(e.target, 'values'); });
+      $('#vlKeyPdf').addEventListener('click', function (e) { makeValuesPdf(e.target, 'keyvalues'); });
     }).catch(fail);
   }
-  function makeValuesPdf(btn) {
-    btn.disabled = true; toast('作業入力値一覧の PDF を作成しています…');
-    flushAll().then(function () { return Api.post('/api/jobs/' + J.job.id + '/values.pdf', {}); }).then(function (r) {
+  // values：作業入力値一覧（入力元・日時・食い違いまで全部）／ keyvalues：主要値一覧（要求値・入力値・出力値だけ）
+  var PDF_KINDS = { values: { title: '作業入力値一覧', paper: 'A4 横' }, keyvalues: { title: '主要値一覧', paper: 'A4 縦' } };
+  function makeValuesPdf(btn, kind) {
+    kind = kind || 'values';
+    var k = PDF_KINDS[kind], page = Api.dl('/api/jobs/' + J.job.id + '/' + kind + '.html');
+    btn.disabled = true; toast(k.title + 'の PDF を作成しています…');
+    flushAll().then(function () { return Api.post('/api/jobs/' + J.job.id + '/' + kind + '.pdf', {}); }).then(function (r) {
       btn.disabled = false;
       if (r.pdf) {
-        showModal({ title: '作業入力値一覧の PDF を作成しました', cls: 'info',
-          html: '<p>' + esc(r.browser) + ' で A4 横の PDF を作成し、成果物と同じ出力フォルダに保存しました。</p><p class="mono muted brk">' + esc(r.dir) + '<br>' + esc(r.pdf) + '</p>',
-          buttons: [{ label: 'PDF をダウンロード', cls: 'primary', href: Api.dl('/api/exports/' + encodeURIComponent(r.pdf)), download: true, value: 'dl' }, { label: '印刷用ページを開く', href: Api.dl('/api/jobs/' + J.job.id + '/values.html'), value: 'open' }, { label: '閉じる' }] });
+        showModal({ title: k.title + 'の PDF を作成しました', cls: 'info',
+          html: '<p>' + esc(r.browser) + ' で ' + k.paper + 'の PDF を作成し、成果物と同じ出力フォルダに保存しました。</p><p class="mono muted brk">' + esc(r.dir) + '<br>' + esc(r.pdf) + '</p>',
+          buttons: [{ label: 'PDF をダウンロード', cls: 'primary', href: Api.dl('/api/exports/' + encodeURIComponent(r.pdf)), download: true, value: 'dl' }, { label: '印刷用ページを開く', href: page, value: 'open' }, { label: '閉じる' }] });
         return;
       }
       showModal({ title: 'PDF を自動作成できませんでした', cls: 'info',
-        html: '<p>' + esc(r.error || '') + '</p><p>印刷用ページを開き、「印刷 / PDF に保存」ボタンから PDF にしてください（用紙は A4 横に設定済み）。印刷用 HTML は出力フォルダにも保存しました：<br><span class="mono muted">' + esc(r.html) + '</span></p>',
-        buttons: [{ label: '印刷用ページを開く', cls: 'primary', href: Api.dl('/api/jobs/' + J.job.id + '/values.html'), value: 'open' }, { label: '閉じる' }] });
+        html: '<p>' + esc(r.error || '') + '</p><p>印刷用ページを開き、「印刷 / PDF に保存」ボタンから PDF にしてください（用紙は ' + k.paper + 'に設定済み）。印刷用 HTML は出力フォルダにも保存しました：<br><span class="mono muted">' + esc(r.html) + '</span></p>',
+        buttons: [{ label: '印刷用ページを開く', cls: 'primary', href: page, value: 'open' }, { label: '閉じる' }] });
     }).catch(function (e) { btn.disabled = false; fail(e); });
   }
 
@@ -620,7 +627,7 @@
       if (stale(body, 'deliver')) return;
       J.job = v.job; J.resolved = v.resolved;
       var filled = v.resolved.filter(function (r) { return r.kind !== 'none' && r.kind !== 'evidence' && String(r.value || '').trim(); }).length, evCells = v.resolved.filter(function (r) { return r.kind === 'evidence'; });
-      body.innerHTML = '<div class="card"><div class="row spread"><h3>成果物出力</h3><div class="row"><button id="dvMap">マッピング編集</button><button id="dvPdf">作業入力値一覧 PDF</button><button class="primary" id="dvExport">成果物を出力 .xlsx</button></div></div>' +
+      body.innerHTML = '<div class="card"><div class="row spread"><h3>成果物出力</h3><div class="row"><button id="dvMap">マッピング編集</button><button id="dvPdf">作業入力値一覧 PDF</button><button id="dvKeyPdf" title="要求値・入力値・出力値だけの 1 枚もの">主要値一覧 PDF</button><button class="primary" id="dvExport">成果物を出力 .xlsx</button></div></div>' +
         '<p class="muted">パラメータシートの値と作業入力をお客様テンプレートの該当セルに書き込みます。テンプレートの書式（フォント・塗りつぶし・罫線・セル結合・列幅・入力規則）はそのまま保持されます。「記入しない」セルは変更しません。出力後、個別の記述は Excel で手作業で編集してください。</p>' +
         '<p><b>' + filled + '</b> セルに書き込みます' + (v.errors ? '。<span class="err" style="font-size:14px">うち ' + v.errors + ' 項目がチェック NG です（出力は可能）</span>' : '') + '。</p>' +
         '<div class="ev-xlsx" id="dvEv"><label class="nowrap"><input type="checkbox" id="dvEvOn" disabled> 証跡画像を挿入する</label> <select id="dvEvSrc" disabled><option value="">（読み込み中…）</option></select>' +
@@ -639,7 +646,8 @@
         on.disabled = !items.length; sel.disabled = !items.length || !on.checked;
         on.addEventListener('change', function () { sel.disabled = !on.checked; });
       }).catch(fail);
-      $('#dvPdf').addEventListener('click', function (e) { makeValuesPdf(e.target); });
+      $('#dvPdf').addEventListener('click', function (e) { makeValuesPdf(e.target, 'values'); });
+      $('#dvKeyPdf').addEventListener('click', function (e) { makeValuesPdf(e.target, 'keyvalues'); });
       $('#dvExport').addEventListener('click', function () {
         var on = $('#dvEvOn'), src = $('#dvEvSrc') && $('#dvEvSrc').value;
         function go() { download('/api/jobs/' + J.job.id + '/deliverable.xlsx' + (on && on.checked && src ? '?sop=' + encodeURIComponent(src) : '')); toast('成果物を生成しています…'); }
