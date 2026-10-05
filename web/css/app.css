@@ -281,6 +281,7 @@ table.rp-rows tr.rp-miss>td{background:var(--warn-soft)}
 .rp-src{font-family:inherit;font-size:11.5px}
 .rp-note{margin-top:8px;padding:7px 12px;border:1px solid #fcd34d;border-left:4px solid #f59e0b;border-radius:var(--radius-sm);background:var(--warn-soft);color:var(--warn);font-size:13px}
 .rp-ev{display:inline-block;margin-top:10px}
+<<<<<<< Updated upstream
 
 /* 手順修正（参考画像・パラメータ参照・照合） */
 #sop-app.authoring #btnStart,#sop-app.authoring label:has([data-bind=executor]){display:none}
@@ -301,3 +302,5 @@ table.rp-rows tr.rp-miss>td{background:var(--warn-soft)}
 .au-prev{margin-top:6px;padding:6px 10px;border-left:3px solid #cbd5e1;background:var(--surface-2);font-size:13px;overflow-wrap:anywhere}
 .au-cmpbox{border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px 12px;background:var(--surface-2);margin-bottom:10px;min-width:0}
 table.au-cmp{width:100%;margin-top:8px;background:var(--surface)}
+=======
+>>>>>>> Stashed changes

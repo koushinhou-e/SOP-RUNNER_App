@@ -11,7 +11,10 @@ app.js への構造パッチ（各パッチは一致を検証し、v1 が変わ�
   6. SopApp.importFile / save / refreshGate を公開（テンプレートライブラリ・証跡画像モジュールから呼び出す）
   8. 入力項目のパラメータキー列（data-inped="key"）と値の入力日時 results[].valuesAt
   7. 証跡画像モジュール（web/sop/sop-evidence.js）用のフック：missing / onImport / afterParse / editHeader / editExtra / runExtra、結合時の引き継ぎ
+<<<<<<< Updated upstream
   10. 手順修正（authoring）：SopApp.setMode / open、render 後の afterRender、期待結果の resolveText（export.js も同様）
+=======
+>>>>>>> Stashed changes
   9. 完了ページ描画後に SopHooks.afterDone を呼ぶ（確認結果報告書の作成ボタンと確認ダイアログ）
 export.js には証跡画像の行・名前空間・パーツ拡張のフックを追加する。
 さらに tools/v1_ja.py の置換表で UI 文言を日本語化する（parser.js / export.js / app.js / app.css）。
@@ -66,6 +69,7 @@ PATCHES = [
     # ---- 完了ページ：確認結果報告書の作成ボタン・確認ダイアログ（web/js/app.js の SopHooks.afterDone）----
     ("    }).join('') + '</table></div>';\n    app.innerHTML = h;\n  }",
      "    }).join('') + '</table></div>';\n    app.innerHTML = h;\n    if (window.SopHooks && SopHooks.afterDone) SopHooks.afterDone(app, S);\n  }"),
+<<<<<<< Updated upstream
     # ---- 手順修正（web/sop/sop-author.js）：モード切替・期待結果のパラメータ参照（PATCHES は上から順に適用される）----
     ('  var S = null;           // 当前会话状态\n',
      "  var S = null;           // 当前会话状态\n  var MODE = 'run', SLOT = { run: null, author: null };   // 'author' = 手順修正（進捗は保存しない）\n"),
@@ -81,6 +85,8 @@ PATCHES = [
      'renderContent(window.SopHooks && SopHooks.resolveText ? SopHooks.resolveText(st.expected) : st.expected)'),
     ('home: function () { S = null; render(); } };',
      'home: function () { S = null; render(); }, mode: function () { return MODE; },\n    setMode: function (m) { if (m !== MODE) { SLOT[MODE] = S; MODE = m; S = SLOT[m]; } render(); },\n    open: function (s) { openSession(s); save(); render(); } };'),
+=======
+>>>>>>> Stashed changes
 ]
 
 # export.js へのパッチ（証跡画像の埋め込み用。フックが無ければ v1 と同じ出力）
