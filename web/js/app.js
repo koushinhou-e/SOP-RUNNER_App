@@ -707,7 +707,11 @@
   // 手順実行の記録 s から報告書を作る作業を選び（無ければ作成）、設定値／確認結果／判定を確認してから成果物 .xlsx を出力する
   function openReport(s) {
     (window.SopStore ? SopStore.flush() : Promise.resolve()).then(function () { return Promise.all([Api.get('/api/jobs'), loadLib()]); }).then(function (r) {
+<<<<<<< Updated upstream
       var procIds = (G.lib.procedure || []).filter(function (m) { return m.id === s.libId || m.id === s.tplId || m.original_name === s.docName; }).map(function (m) { return m.id; });
+=======
+      var procIds = (G.lib.procedure || []).filter(function (m) { return m.id === s.libId || m.original_name === s.docName; }).map(function (m) { return m.id; });
+>>>>>>> Stashed changes
       function rank(j) { return j.sop_key === s.key ? 3 : j.id === G.procJob ? 2 : procIds.indexOf(j.procedure_id) >= 0 ? 1 : 0; }
       var jobs = r[0].items.filter(function (j) { return j.template_id; }).map(function (j, i) { return { j: j, i: i }; });
       jobs.sort(function (a, b) { return rank(b.j) - rank(a.j) || a.i - b.i; });   // 関連の強い順、同じなら更新日時の新しい順
